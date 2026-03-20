@@ -650,8 +650,9 @@ def run_morning_pipeline():
     analysis = get_analysis(today, history, workout_context)
 
     # 5. Send email
-    subject = f"Fortis — Morning Briefing, {today['date']}"
-    send_email(subject, analysis, today["date"])
+    briefing_date = date.today().isoformat()
+    subject = f"Fortis — Morning Briefing, {briefing_date}"
+    send_email(subject, analysis, briefing_date)
 
     print("Pipeline complete.")
 
