@@ -1,0 +1,53 @@
+name: Fortis Morning Briefing
+
+on:
+  schedule:
+    - cron: '30 12 * * *'  # 8:30am EST (12:30 UTC) — daylight saving time
+    # - cron: '30 13 * * *'  # 8:30am EST (13:30 UTC) — standard time (Nov–Mar)
+  workflow_dispatch:  # allows manual trigger from GitHub UI
+    inputs:
+      last_session:
+        description: 'What did you train yesterday? (Legs / Back / Chest / Arms / Rest)'
+        required: false
+        default: ''
+      session_notes:
+        description: 'Any notes? (optional)'
+        required: false
+        default: ''
+
+jobs:
+  run-fortis:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests anthropic pinecone numpy python-dotenv
+
+      - name: Restore Fitbit tokens
+        run: echo '${{ secrets.FITBIT_TOKENS }}' > fitbit_tokens.json
+
+      - name: Run Fortis pipeline
+        env:
+          FITBIT_CLIENT_ID:     ${{ secrets.FITBIT_CLIENT_ID }}
+          FITBIT_CLIENT_SECRET: ${{ secrets.FITBIT_CLIENT_SECRET }}
+          PINECONE_API_KEY:     ${{ secrets.PINECONE_API_KEY }}
+          ANTHROPIC_API_KEY:    ${{ secrets.ANTHROPIC_API_KEY }}
+          EMAIL_SENDER:         ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD:       ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENT:      ${{ secrets.EMAIL_RECIPIENT }}
+          LAST_SESSION:         ${{ github.event.inputs.last_session }}
+          SESSION_NOTES:        ${{ github.event.inputs.session_notes }}
+        run: python fortis.py
+
+      - name: Save updated Fitbit tokens
+        if: always()
+        run: |
+          echo "Tokens refreshed if needed."
