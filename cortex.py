@@ -1,5 +1,5 @@
 """
-FORTIS — Personal Performance Intelligence
+Cortex — Personal Performance Intelligence
 Fetches Fitbit biometrics → stores in Pinecone → Claude analysis → morning email
 Runs automatically via GitHub Actions at 8:30am EST daily
 """
@@ -562,7 +562,7 @@ def build_email_html(analysis, briefing_date):
               <tr>
                 <td align="center" style="padding-bottom:24px">
                   <div style="display:inline-block;background:#000000;padding:10px 28px">
-                    <span style="font-family:Arial,sans-serif;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:3px">FORTIS</span>
+                    <span style="font-family:Arial,sans-serif;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:3px">CORTEX</span>
                   </div>
                 </td>
               </tr>
@@ -594,7 +594,7 @@ def build_email_html(analysis, briefing_date):
               <tr>
                 <td style="border-top:1px solid #e0e0e0;padding-top:24px;margin-top:40px">
                   <p style="font-family:Arial,sans-serif;font-size:11px;color:#aaa;text-align:center;margin:0;line-height:1.8">
-                    Fortis — Personal Performance Intelligence<br>
+                    Cortex — Personal Performance Intelligence<br>
                     Generated daily from your Fitbit biometrics
                   </p>
                 </td>
@@ -626,7 +626,7 @@ def send_email(subject, analysis, briefing_date):
 # ─────────────────────────────────────────────────────────────
 
 def run_morning_pipeline():
-    print("Starting Fortis morning pipeline...")
+    print("Starting Cortex morning pipeline...")
 
     # 1. Fitbit auth + fetch
     auth   = FitbitAuth()
@@ -651,7 +651,7 @@ def run_morning_pipeline():
 
     # 5. Send email
     briefing_date = date.today().isoformat()
-    subject = f"Fortis — Morning Briefing, {briefing_date}"
+    subject = f"Cortex — Morning Briefing, {briefing_date}"
     send_email(subject, analysis, briefing_date)
 
     print("Pipeline complete.")
