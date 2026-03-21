@@ -1,4 +1,4 @@
-name: Fortis Morning Briefing
+name: Cortex Morning Briefing
 on:
   schedule:
     - cron: '30 12 * * *'  # 8:30am EST (12:30 UTC) — daylight saving time
@@ -14,7 +14,7 @@ on:
         required: false
         default: ''
 jobs:
-  run-fortis:
+  run-Cortex:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -27,7 +27,7 @@ jobs:
         run: pip install requests anthropic pinecone numpy python-dotenv
       - name: Restore Fitbit tokens
         run: echo '${{ secrets.FITBIT_TOKENS }}' > fitbit_tokens.json
-      - name: Run Fortis pipeline
+      - name: Run Cortex pipeline
         env:
           FITBIT_CLIENT_ID:     ${{ secrets.FITBIT_CLIENT_ID }}
           FITBIT_CLIENT_SECRET: ${{ secrets.FITBIT_CLIENT_SECRET }}
@@ -38,7 +38,7 @@ jobs:
           EMAIL_RECIPIENT:      ${{ secrets.EMAIL_RECIPIENT }}
           LAST_SESSION:         ${{ github.event.inputs.last_session }}
           SESSION_NOTES:        ${{ github.event.inputs.session_notes }}
-        run: python fortis.py
+        run: python cortex.py
       - name: Save updated Fitbit tokens
         if: always()
         env:
