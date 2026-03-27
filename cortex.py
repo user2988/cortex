@@ -646,10 +646,10 @@ def run_morning_pipeline():
     print("Sending to Claude...")
     analysis = get_analysis(recovery_data, history, "")
 
-    # 5. SEND THE EMAIL
-    today_label = datetime.now().strftime('%Y-%m-%d')
-    send_email(f"Cortex — Briefing {today_label}", analysis, today_label)
 
+    # 5. SEND THE EMAIL
+    send_email(f"Cortex — Briefing {target_date}", analysis, target_date)
+    
     print("Pipeline complete.")
 
 if __name__ == "__main__":
