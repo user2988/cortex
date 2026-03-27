@@ -626,38 +626,31 @@ def send_email(subject, analysis, briefing_date):
 def run_morning_pipeline():
     from datetime import datetime, timedelta
     
-    # 1. DEFINE YESTERDAY (The 'Recovery' Date)
-    yesterday_str = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
-    print(f"--- Processing Recovery Data for: {yesterday_str} ---")
+    # 1. SET THE TARGET DATE (Yesterday)
+    target_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+    print(f"--- Processing Data for: {target_date} ---")
 
     auth = FitbitAuth()
     client = FitbitClient(auth)
     
-    # 2. FETCH (Using the 'yesterday' string)
-    recovery_data = client.fetch_day(yesterday_str) 
-    
-    # 3. STORE (Into your fresh Pinecone index)
+    # 2. FETCH THE DATA (This is the real data from yesterday)
+    recovery_data = client.fetch_day(target_date) 
+
+    # 3. SYNC TO PINECONE
     index = init_pinecone()
-    # Attach your workout notes to THIS specific data object
-    recovery_data["last_session"] = LAST_SESSION
-    recovery_data["session_notes"] = SESSION_NOTES
-    
     store_day(index, recovery_data)
-    
-    # 4. HISTORY (Get the trend)
     history = get_rolling_summary(index, 7)
 
-    # 5. ANALYZE (Crucial: Send 'recovery_data' to Claude, NOT 'today')
+    # 4. THE FIX: Pass 'recovery_data' directly to the analysis
+    # This ensures Claude sees the Sleep/HRV from 'target_date'
     print("Sending to Claude...")
     analysis = get_analysis(recovery_data, history, "")
 
-    # 6. SEND EMAIL
+    # 5. SEND THE EMAIL
     today_label = datetime.now().strftime('%Y-%m-%d')
-    subject = f"Cortex — Morning Briefing, {today_label}"
-    send_email(subject, analysis, today_label)
+    send_email(f"Cortex — Briefing {today_label}", analysis, today_label)
 
     print("Pipeline complete.")
 
-# 7. SINGLE ENTRY POINT (To stop double emails)
 if __name__ == "__main__":
     run_morning_pipeline()
