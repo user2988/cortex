@@ -61,92 +61,28 @@ class FitbitAuth:
 
     def _load_tokens(self):
         if os.path.exists(TOKEN_FILE):
-            with open(TOKEN_FILE) as f:
+            with open(TOKEN_FILE, 'r') as f:
                 return json.load(f)
         return None
 
     def _save_tokens(self, tokens):
+        # We add a timestamp so we know when the 8-hour window started
         tokens["saved_at"] = time.time()
         with open(TOKEN_FILE, "w") as f:
             json.dump(tokens, f, indent=2)
         self.tokens = tokens
 
-    def is_authenticated(self):
-        return self.tokens is not None
-
     def needs_refresh(self):
-        if not self.tokens:
-            return True
+        if not self.tokens: return True
+        # Refresh 5 minutes before the 8-hour (28800s) window closes
         age = time.time() - self.tokens.get("saved_at", 0)
         return age > (self.tokens.get("expires_in", 28800) - 300)
 
-    @staticmethod
-    def _generate_pkce():
-        verifier  = secrets.token_urlsafe(64)[:128]
-        challenge = base64.urlsafe_b64encode(
-            hashlib.sha256(verifier.encode()).digest()
-        ).rstrip(b"=").decode()
-        return verifier, challenge
-
-    def authorize(self):
-        verifier, challenge = self._generate_pkce()
-        state = secrets.token_urlsafe(16)
-        params = {
-            "client_id":             FITBIT_CLIENT_ID,
-            "response_type":         "code",
-            "scope":                 self.SCOPES,
-            "redirect_uri":          FITBIT_REDIRECT_URI,
-            "code_challenge":        challenge,
-            "code_challenge_method": "S256",
-            "state":                 state,
-        }
-        url = f"{self.AUTH_URL}?{urlencode(params)}"
-        print(f"Opening Fitbit login: {url}")
-        webbrowser.open(url)
-
-        auth_code = [None]
-
-        class Handler(BaseHTTPRequestHandler):
-            def do_GET(self):
-                qs = parse_qs(urlparse(self.path).query)
-                if "code" in qs:
-                    auth_code[0] = qs["code"][0]
-                self.send_response(200)
-                self.end_headers()
-                self.wfile.write(b"<h2>Done! You can close this tab.</h2>")
-            def log_message(self, *_):
-                pass
-
-        server = HTTPServer(("localhost", 8080), Handler)
-        server.timeout = 120
-        server.handle_request()
-        server.server_close()
-
-        if not auth_code[0]:
-            raise RuntimeError("No auth code received.")
-        self._exchange_code(auth_code[0], verifier)
-
-    def _exchange_code(self, code, verifier):
-        creds = base64.b64encode(
-            f"{FITBIT_CLIENT_ID}:{FITBIT_CLIENT_SECRET}".encode()
-        ).decode()
-        resp = requests.post(self.TOKEN_URL, headers={
-            "Authorization": f"Basic {creds}",
-            "Content-Type":  "application/x-www-form-urlencoded",
-        }, data={
-            "code":          code,
-            "grant_type":    "authorization_code",
-            "redirect_uri":  FITBIT_REDIRECT_URI,
-            "code_verifier": verifier,
-        })
-        resp.raise_for_status()
-        self._save_tokens(resp.json())
-        print("Fitbit authenticated.")
-
     def refresh(self):
-        creds = base64.b64encode(
-            f"{FITBIT_CLIENT_ID}:{FITBIT_CLIENT_SECRET}".encode()
-        ).decode()
+        """Automated refresh logic for GitHub Actions"""
+        print("Refreshing Fitbit tokens...")
+        creds = base64.b64encode(f"{FITBIT_CLIENT_ID}:{FITBIT_CLIENT_SECRET}".encode()).decode()
+        
         resp = requests.post(self.TOKEN_URL, headers={
             "Authorization": f"Basic {creds}",
             "Content-Type":  "application/x-www-form-urlencoded",
@@ -154,14 +90,77 @@ class FitbitAuth:
             "grant_type":    "refresh_token",
             "refresh_token": self.tokens["refresh_token"],
         })
-        resp.raise_for_status()
-        self._save_tokens(resp.json())
-        print("Tokens refreshed.")
+        
+        if resp.status_code == 200:
+            self._save_tokens(resp.json())
+            print("Tokens successfully rotated and saved to disk.")
+        else:
+            print(f"FAILED REFRESH: {resp.text}")
+            resp.raise_for_status()
 
     def get_headers(self):
+        """The entry point for the API client"""
+        if not self.tokens:
+            # This triggers if you haven't done the first manual login yet
+            self.bootstrap_locally()
+            
         if self.needs_refresh():
             self.refresh()
+            
         return {"Authorization": f"Bearer {self.tokens['access_token']}"}
+
+    def bootstrap_locally(self):
+        """Run this once on your laptop to generate the first token file"""
+        print("--- LOCAL BOOTSTRAP MODE ---")
+        import secrets, hashlib, webbrowser
+        from http.server import HTTPServer, BaseHTTPRequestHandler
+        from urllib.parse import urlparse, parse_qs, urlencode
+
+        verifier = secrets.token_urlsafe(64)[:128]
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        state = secrets.token_urlsafe(16)
+        
+        params = {
+            "client_id": FITBIT_CLIENT_ID,
+            "response_type": "code",
+            "scope": self.SCOPES,
+            "redirect_uri": FITBIT_REDIRECT_URI,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": state,
+        }
+        
+        url = f"{self.AUTH_URL}?{urlencode(params)}"
+        print(f"Opening browser to authorize: {url}")
+        webbrowser.open(url)
+
+        auth_code = [None]
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                qs = parse_qs(urlparse(self.path).query)
+                if "code" in qs: auth_code[0] = qs["code"][0]
+                self.send_response(200); self.end_headers()
+                self.wfile.write(b"Success! Close this tab.")
+        
+        server = HTTPServer(("localhost", 8080), Handler)
+        server.handle_request()
+        
+        if auth_code[0]:
+            self._exchange_code(auth_code[0], verifier)
+
+    def _exchange_code(self, code, verifier):
+        creds = base64.b64encode(f"{FITBIT_CLIENT_ID}:{FITBIT_CLIENT_SECRET}".encode()).decode()
+        resp = requests.post(self.TOKEN_URL, headers={
+            "Authorization": f"Basic {creds}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        }, data={
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": FITBIT_REDIRECT_URI,
+            "code_verifier": verifier,
+        })
+        resp.raise_for_status()
+        self._save_tokens(resp.json())
 
 
 # ─────────────────────────────────────────────────────────────
@@ -295,19 +294,18 @@ def metrics_to_vector(record):
 
 
 def init_pinecone():
-    pc       = Pinecone(api_key=PINECONE_API_KEY)
+    pc = Pinecone(api_key=PINECONE_API_KEY)
     existing = [i.name for i in pc.list_indexes()]
     if INDEX_NAME not in existing:
         pc.create_index(
             name=INDEX_NAME,
-            dimension=12,
+            dimension=len(METRIC_KEYS), # Automatically scales to your METRIC_KEYS list
             metric="cosine",
             spec=ServerlessSpec(cloud="aws", region="us-east-1")
         )
         while not pc.describe_index(INDEX_NAME).status["ready"]:
             time.sleep(2)
     return pc.Index(INDEX_NAME)
-
 
 def store_day(index, record):
     vector   = metrics_to_vector(record)
