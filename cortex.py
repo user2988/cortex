@@ -634,19 +634,21 @@ def send_email(subject, analysis, briefing_date):
 def run_morning_pipeline():
     print("Starting Cortex morning pipeline...")
 
-    # 1. Fitbit auth + fetch
-    auth = FitbitAuth()
+    def run_morning_pipeline():
+    from datetime import datetime, timedelta
     
-    # Check if we are running in GitHub Actions to avoid browser hanging
-    if not auth.is_authenticated():
-        if os.getenv("GITHUB_ACTIONS"):
-            raise RuntimeError("No tokens found in GitHub Secrets! Run locally once to bootstrap.")
-        else:
-            auth.bootstrap_locally()
-            
-    client = FitbitClient(auth)
-    today  = client.fetch_day()
+    # 1. Force the date to 'Yesterday'
+    # This ensures we get the sleep from last night and the FULL step count from yesterday.
+    yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+    
+    print(f"--- Running Recovery Analysis for: {yesterday} ---")
 
+    auth = FitbitAuth()
+    client = FitbitClient(auth)
+    
+    # 1.2. Pass 'yesterday' into the fetcher
+    day_data = client.fetch_day(yesterday) 
+    
     # 2. Pinecone — store today + get history
     index  = init_pinecone()
     today["last_session"]  = LAST_SESSION
