@@ -1,22 +1,14 @@
-name: Fitbit Debug
+name: Debug Fitbit
+
 on:
   workflow_dispatch:
 
 jobs:
-  dump_fitbit:
+  debug:
     runs-on: ubuntu-latest
+    env:
+      FITBIT_TOKENS: ${{ secrets.FITBIT_TOKENS }}
     steps:
       - uses: actions/checkout@v3
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
-      - name: Install dependencies
-        run: |
-          pip install requests
-      - name: Run debug
+      - name: Run debug script
         run: python3 cortex_debug.py
-        env:
-          FITBIT_CLIENT_ID: ${{ secrets.FITBIT_CLIENT_ID }}
-          FITBIT_CLIENT_SECRET: ${{ secrets.FITBIT_CLIENT_SECRET }}
-          FITBIT_REFRESH_TOKEN: ${{ secrets.FITBIT_REFRESH_TOKEN }}
