@@ -623,26 +623,28 @@ def send_email(subject, analysis, briefing_date):
 # MAIN PIPELINE
 # ─────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────
+# MAIN PIPELINE
+# ─────────────────────────────────────────────────────────────
+
 def run_morning_pipeline():
     print("Starting Cortex morning pipeline...")
 
-    def run_morning_pipeline():
-    print("Starting Cortex morning pipeline...")
-
-    # 1. Fitbit auth
+    # 1. Fitbit auth + fetch
     auth = FitbitAuth()
     
-    # Check if we are running in GitHub Actions
+    # Check if we are running in GitHub Actions to avoid browser hanging
     if not auth.is_authenticated():
         if os.getenv("GITHUB_ACTIONS"):
             raise RuntimeError("No tokens found in GitHub Secrets! Run locally once to bootstrap.")
         else:
             auth.bootstrap_locally()
-    
+            
     client = FitbitClient(auth)
+    today  = client.fetch_day()
 
     # 2. Pinecone — store today + get history
-    index   = init_pinecone()
+    index  = init_pinecone()
     today["last_session"]  = LAST_SESSION
     today["session_notes"] = SESSION_NOTES
     store_day(index, today)
@@ -663,6 +665,10 @@ def run_morning_pipeline():
     send_email(subject, analysis, briefing_date)
 
     print("Pipeline complete.")
+
+
+if __name__ == "__main__":
+    run_morning_pipeline()
 
 
 if __name__ == "__main__":
