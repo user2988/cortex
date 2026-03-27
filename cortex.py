@@ -1,18 +1,3 @@
-from datetime import date, timedelta
-import requests, os, base64
-
-FITBIT_CLIENT_ID     = os.environ["FITBIT_CLIENT_ID"]
-FITBIT_CLIENT_SECRET = os.environ["FITBIT_CLIENT_SECRET"]
-ACCESS_TOKEN         = os.environ["FITBIT_ACCESS_TOKEN"]  # your current token
-
-target_date = (date.today() - timedelta(days=1)).isoformat()
-url = f"https://api.fitbit.com/1.2/user/-/sleep/date/{target_date}.json"
-
-resp = requests.get(url, headers={"Authorization": f"Bearer {ACCESS_TOKEN}"})
-print(resp.status_code)
-print(resp.json())
-
-
 """
 Cortex — Personal Performance Intelligence
 Fetches Fitbit biometrics → stores in Pinecone → Claude analysis → morning email
