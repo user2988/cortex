@@ -633,7 +633,6 @@ def run_morning_pipeline():
     print("Starting Cortex morning pipeline...")
     
     # 1. SET THE RECOVERY DATE (Yesterday)
-    # This ensures we get the FULL sleep and HRV from the night just finished.
     target_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
     print(f"--- Running Recovery Analysis for: {target_date} ---")
 
@@ -645,7 +644,7 @@ def run_morning_pipeline():
     
     # 3. PINECONE — Store data + get history
     index = init_pinecone()
-    # Adding workout context to the data object
+    # Ensure workout notes are attached to the data we send to Claude
     day_data["last_session"] = LAST_SESSION
     day_data["session_notes"] = SESSION_NOTES
     
@@ -659,17 +658,15 @@ def run_morning_pipeline():
 
     # 5. CLAUDE ANALYSIS
     print("Sending to Claude...")
-    # We send day_data (which is 'yesterday') so the analysis is complete
     analysis = get_analysis(day_data, history, workout_context)
 
     # 6. SEND EMAIL
-    # The subject line reflects the data date, the briefing date is 'today'
+    # Briefing date is Today; Data date is Yesterday
     briefing_date = datetime.now().strftime('%Y-%m-%d')
-    subject = f"Cortex — Morning Briefing, {briefing_date} (Data: {target_date})"
+    subject = f"Cortex — Morning Briefing, {briefing_date}"
     send_email(subject, analysis, briefing_date)
 
     print("Pipeline complete.")
-
 
 if __name__ == "__main__":
     run_morning_pipeline()
