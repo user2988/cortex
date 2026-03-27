@@ -627,54 +627,48 @@ def send_email(subject, analysis, briefing_date):
 # MAIN PIPELINE
 # ─────────────────────────────────────────────────────────────
 
-# ─────────────────────────────────────────────────────────────
-# MAIN PIPELINE
-# ─────────────────────────────────────────────────────────────
-
 def run_morning_pipeline():
-    print("Starting Cortex morning pipeline...")
-
-    def run_morning_pipeline():
     from datetime import datetime, timedelta
     
-    # 1. Force the date to 'Yesterday'
-    # This ensures we get the sleep from last night and the FULL step count from yesterday.
-    yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+    print("Starting Cortex morning pipeline...")
     
-    print(f"--- Running Recovery Analysis for: {yesterday} ---")
+    # 1. SET THE RECOVERY DATE (Yesterday)
+    # This ensures we get the FULL sleep and HRV from the night just finished.
+    target_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+    print(f"--- Running Recovery Analysis for: {target_date} ---")
 
     auth = FitbitAuth()
     client = FitbitClient(auth)
     
-    # 1.2. Pass 'yesterday' into the fetcher
-    day_data = client.fetch_day(yesterday) 
+    # 2. FETCH DATA FOR TARGET DATE
+    day_data = client.fetch_day(target_date) 
     
-    # 2. Pinecone — store today + get history
-    index  = init_pinecone()
-    today["last_session"]  = LAST_SESSION
-    today["session_notes"] = SESSION_NOTES
-    store_day(index, today)
+    # 3. PINECONE — Store data + get history
+    index = init_pinecone()
+    # Adding workout context to the data object
+    day_data["last_session"] = LAST_SESSION
+    day_data["session_notes"] = SESSION_NOTES
+    
+    store_day(index, day_data)
     history = get_rolling_summary(index, 7)
 
-    # 3. Build workout context
+    # 4. BUILD WORKOUT CONTEXT
     workout_context = f"Yesterday's session: {LAST_SESSION}" if LAST_SESSION else ""
     if SESSION_NOTES:
         workout_context += f" — Notes: {SESSION_NOTES}"
 
-    # 4. Claude analysis
+    # 5. CLAUDE ANALYSIS
     print("Sending to Claude...")
-    analysis = get_analysis(today, history, workout_context)
+    # We send day_data (which is 'yesterday') so the analysis is complete
+    analysis = get_analysis(day_data, history, workout_context)
 
-    # 5. Send email
-    briefing_date = date.today().isoformat()
-    subject = f"Cortex — Morning Briefing, {briefing_date}"
+    # 6. SEND EMAIL
+    # The subject line reflects the data date, the briefing date is 'today'
+    briefing_date = datetime.now().strftime('%Y-%m-%d')
+    subject = f"Cortex — Morning Briefing, {briefing_date} (Data: {target_date})"
     send_email(subject, analysis, briefing_date)
 
     print("Pipeline complete.")
-
-
-if __name__ == "__main__":
-    run_morning_pipeline()
 
 
 if __name__ == "__main__":
