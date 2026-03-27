@@ -1,25 +1,32 @@
-import os, json, requests
-from datetime import date
+import os
+import requests
+from datetime import datetime, timedelta
 
-# Load the Fitbit tokens from GitHub secret
-tokens = json.loads(os.environ["FITBIT_TOKENS"])
-access_token = tokens["access_token"]
+# Get Fitbit token from secrets / environment
+FITBIT_TOKENS = os.environ.get("FITBIT_TOKENS")  # should contain {"access_token": "...", "refresh_token": "..."}
+access_token = FITBIT_TOKENS and eval(FITBIT_TOKENS)["access_token"]
+
+if not access_token:
+    raise Exception("No Fitbit access token found.")
 
 # Get yesterday's date
-yesterday = (date.today()).isoformat()
+yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
 
-# Define endpoints
-endpoints = {
-    "sleep": f"/1.2/user/-/sleep/date/{yesterday}.json",
-    "heart": f"/1/user/-/activities/heart/date/{yesterday}/1d.json",
-    "hrv": f"/1/user/-/hrv/date/{yesterday}.json",
-    "spo2": f"/1/user/-/spo2/date/{yesterday}.json",
-    "activity": f"/1/user/-/activities/date/{yesterday}.json",
-}
-
+url = f"https://api.fitbit.com/1/user/-/activities/date/{yesterday}.json"
 headers = {"Authorization": f"Bearer {access_token}"}
 
-for name, path in endpoints.items():
-    r = requests.get(f"https://api.fitbit.com{path}", headers=headers)
-    print(f"\n{name.upper()}:")
-    print(json.dumps(r.json(), indent=2))
+resp = requests.get(url, headers=headers)
+data = resp.json()
+
+# Print steps, calories, distances, floors in hours where applicable
+summary = data.get("summary", {})
+print("Steps:", summary.get("steps"))
+print("Calories Out:", summary.get("caloriesOut"))
+print("BMR Calories:", summary.get("caloriesBMR"))
+print("Activity Calories:", summary.get("activityCalories"))
+print("Floors:", summary.get("floors"))
+print("Distances (km):", {d["activity"]: d["distance"] for d in summary.get("distances", [])})
+print("Sedentary Minutes:", summary.get("sedentaryMinutes"))
+print("Lightly Active Minutes:", summary.get("lightlyActiveMinutes"))
+print("Fairly Active Minutes:", summary.get("fairlyActiveMinutes"))
+print("Very Active Minutes:", summary.get("veryActiveMinutes"))
