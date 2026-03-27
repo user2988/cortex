@@ -59,6 +59,10 @@ class FitbitAuth:
     def __init__(self):
         self.tokens = self._load_tokens()
 
+    def is_authenticated(self):
+        """Checks if we have a token at all."""
+        return self.tokens is not None
+    
     def _load_tokens(self):
         if os.path.exists(TOKEN_FILE):
             with open(TOKEN_FILE, 'r') as f:
