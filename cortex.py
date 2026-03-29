@@ -704,7 +704,7 @@ def run_morning_pipeline():
     
     # 3. Deliver
     print("Sending email...")
-    # send_email(f"Cortex — {today_str}", analysis, today_str)
+    send_email(f"Cortex — {today_str}", analysis, today_str)
     print("DONE.")
 
 if __name__ == "__main__":
