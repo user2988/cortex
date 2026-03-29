@@ -476,13 +476,14 @@ TONE: Write like a knowledgeable coach who has access to your biometric data. Sm
 def safe_dict(data):
     return data if isinstance(data, dict) else {}
 
-def get_analysis(today_metrics, rolling_summary, workout_context=""):
+def get_analysis(today_metrics, rolling_summary, workout_context, avg_hrv, avg_rhr):
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    
     message = client.messages.create(
-        model="claude-3-5-opus-20240229", 
+        model="claude-opus-4-5-20251101", # The 'Flagship' 4.5 tier
         max_tokens=1500,
         system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": build_prompt(today_metrics, rolling_summary, workout_context)}]
+        messages=[{"role": "user", "content": build_prompt(today_metrics, rolling_summary, workout_context, avg_hrv, avg_rhr)}]
     )
     return message.content[0].text
 
