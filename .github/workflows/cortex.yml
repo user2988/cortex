@@ -1,8 +1,8 @@
 name: Cortex Morning Briefing
 on:
   schedule:
-    - cron: '30 11 * * *'  # 7:30am EDT (UTC-4, Mar–Nov)
-    # - cron: '30 12 * * *'  # 7:30am EST (UTC-5, Nov–Mar)
+    - cron: '30 12 * * *'  # 8:30am EDT (UTC-4, Mar–Nov)
+    # - cron: '30 13 * * *'  # 8:30am EST (UTC-5, Nov–Mar)
   workflow_dispatch:
     inputs:
       last_session:
