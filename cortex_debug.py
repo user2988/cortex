@@ -3,66 +3,62 @@ import json
 import requests
 from datetime import datetime, timedelta
 
-# --- FETCH SLEEP RAW DEBUG ---
-sleep_raw = fetch_fitbit(f"https://api.fitbit.com/1.2/user/-/sleep/date/{today}.json")
+# 1. SETUP HEADERS & SETTINGS
+# Get this from your environment/secrets
+access_token = os.environ.get("FITBIT_ACCESS_TOKEN")
 
-if not sleep_raw.get('sleep'):
-    print("!! API Check: The 'sleep' list is literally empty for this date.")
-    # Print the full JSON to see if Fitbit thinks today is actually tomorrow
-    print(f"Full Response: {sleep_raw}") 
-else:
-    print(f"Success: Found {len(sleep_raw['sleep'])} sleep logs.")
+# 2. DEFINE THE FUNCTION FIRST
+def fetch_fitbit(endpoint_url):
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept-Language": "en_US"  # Forces Fitbit to use your profile's Timezone
+    }
+    response = requests.get(endpoint_url, headers=headers)
+    
+    if response.status_code == 401:
+        print("!! Unauthorized: Token is expired or scopes are missing.")
+        return {}
+    if response.status_code != 200:
+        print(f"!! Error {response.status_code}: {response.text}")
+        return {}
+        
+    return response.json()
 
-
-# 1. TOKEN HANDLING (Using a refresh-first approach for GitHub Actions)
-REFRESH_TOKEN = os.environ.get("FITBIT_REFRESH_TOKEN")
-CLIENT_ID = os.environ.get("FITBIT_CLIENT_ID")
-CLIENT_SECRET = os.environ.get("FITBIT_CLIENT_SECRET")
-
-def get_valid_headers():
-    # In a real run, you'd call the refresh endpoint here to get a fresh Access Token
-    # For this debug script, we assume access_token is provided or refreshed
-    access_token = os.environ.get("FITBIT_ACCESS_TOKEN") 
-    return {"Authorization": f"Bearer {access_token}"}
-
-headers = get_valid_headers()
-
-# 2. DATE LOGIC (Correctly Aligned)
+# 3. DEFINE THE DATES
 yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
 today = datetime.now().strftime("%Y-%m-%d")
 
-def fetch_fitbit(endpoint_url):
-    r = requests.get(endpoint_url, headers=headers)
-    if r.status_code == 401:
-        return {"error": "expired"}
-    if r.status_code != 200:
-        return {}
-    return r.json()
+# 4. EXECUTE THE FETCHES (Now that the function is defined)
+print(f"--- CORTEX DEBUG ---")
+print(f"Syncing for: Activity={yesterday} | Recovery={today}")
 
-# --- EXECUTION ---
+# Steps (Yesterday)
+activity_data = fetch_fitbit(f"https://api.fitbit.com/1/user/-/activities/date/{yesterday}.json")
+steps = activity_data.get("summary", {}).get("steps", 0)
 
-# Activity (Yesterday)
-activity = fetch_fitbit(f"https://api.fitbit.com/1/user/-/activities/date/{yesterday}.json")
-steps = activity.get("summary", {}).get("steps", 0)
-
-# Sleep (Today - using version 1.2)
-sleep = fetch_fitbit(f"https://api.fitbit.com/1.2/user/-/sleep/date/{today}.json")
-sleep_summary = sleep.get("summary", {})
-# Better to use totalMinutesAsleep than duration (which includes being awake in bed)
-sleep_mins = sleep_summary.get("totalMinutesAsleep", 0) 
+# Sleep (Today)
+sleep_data = fetch_fitbit(f"https://api.fitbit.com/1.2/user/-/sleep/date/{today}.json")
+sleep_list = sleep_data.get('sleep', [])
 
 # HRV (Today)
-hrv = fetch_fitbit(f"https://api.fitbit.com/1/user/-/hrv/date/{today}.json")
-hrv_entries = hrv.get("hrv", [])
-# Safely get RMSSD without crashing if list is empty
-hrv_val = hrv_entries[0].get("value", {}).get("dailyRmssd") if hrv_entries else "N/A"
+hrv_data = fetch_fitbit(f"https://api.fitbit.com/1/user/-/hrv/date/{today}.json")
+hrv_list = hrv_data.get('hrv', [])
 
-# --- OUTPUT ---
-print(f"--- CORTEX DEBUG ---")
-print(f"Date Context: Activity={yesterday} | Recovery={today}")
+# 5. PRINT THE RESULTS
 print(f"Steps: {steps}")
-print(f"Sleep: {sleep_mins} mins asleep")
-print(f"HRV: {hrv_val} ms")
 
-if hrv_val == "N/A":
-    print("Note: HRV requires a high-quality sleep log. Ensure watch is snug.")
+if sleep_list:
+    # Fitbit returns the most recent sleep first
+    main_sleep = sleep_list[0]
+    print(f"Sleep Duration: {main_sleep.get('minutesAsleep')} mins")
+    print(f"Sleep Efficiency: {main_sleep.get('efficiency')}%")
+else:
+    print("Sleep: No data found. (Check 'today' date vs Fitbit App sync time)")
+
+if hrv_list:
+    print(f"HRV (RMSSD): {hrv_list[0]['value']['dailyRmssd']}")
+else:
+    print("HRV: No data found.")
+
+
+
