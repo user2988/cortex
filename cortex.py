@@ -486,13 +486,20 @@ def safe_dict(data):
 
 def get_analysis(today_metrics, rolling_summary, workout_context, avg_hrv, avg_rhr):
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    
+
     message = client.messages.create(
-        model="claude-opus-4-6", # February 2026 Stable Release
-        max_tokens=2000,         # 4.6 supports up to 128k output, but 2k is plenty for an email
-        thinking={"type": "adaptive", "effort": "high"}, # Ensures it double-checks the BP math
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": build_prompt(today_metrics, rolling_summary, workout_context, avg_hrv, avg_rhr)}]
+        model="claude-opus-4-6", 
+        max_tokens=2048,
+        # We simplify this to the standard 'enabled' toggle 
+        # Opus 4.6 handles the 'effort' automatically based on the prompt complexity
+        thinking={"type": "enabled", "budget_tokens": 1024}, 
+        system="You are an elite performance coach (Cortex). Write in prose. No emojis.",
+        messages=[
+            {
+                "role": "user", 
+                "content": build_prompt(today_metrics, rolling_summary, workout_context, avg_hrv, avg_rhr)
+            }
+        ]
     )
     return message.content[0].text
 
