@@ -472,11 +472,15 @@ LOGIC FOR THIS SECTION:
 TONE: Write like a knowledgeable coach who has access to your biometric data. Smart and data-informed, but clear and direct. Never sacrifice clarity for technical precision. No emojis. No markdown bold. Prose only except Action Items.
 """
 
+# Helper to prevent unpacking crashes
+def safe_dict(data):
+    return data if isinstance(data, dict) else {}
 
 def get_analysis(today_metrics, rolling_summary, workout_context=""):
-    client  = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    # Corrected model name to 3.5 Sonnet (the current industry leader for this task)
     message = client.messages.create(
-        model="claude-opus-4-5",
+        model="claude-3-5-sonnet-20240620", 
         max_tokens=1500,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": build_prompt(today_metrics, rolling_summary, workout_context)}]
@@ -617,23 +621,23 @@ def send_email(subject, analysis, briefing_date):
 # --- Run the pipeline ---
 
 def run_morning_pipeline():
-    # Define the two dates
+    # 1. Define dates
     today_str = datetime.now().strftime('%Y-%m-%d')
     yesterday_str = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
     
     auth = FitbitAuth()
     client = FitbitClient(auth)
     
-    # 1. Fetch Activity from YESTERDAY
-    activity_data = client.fetch_activity(yesterday_str)
-    
-    # 2. Fetch Sleep/HRV from TODAY (the sleep you just woke up from)
-    sleep_data = client.fetch_sleep(today_str)
-    hrv_data = client.fetch_hrv(today_str)
-    spo2_data = client.fetch_spo2(today_str)
-    rhr_data = client.fetch_heart_rate(today_str)
+    # 2. Fetch Data with safety checks
+    # We wrap these in safe_dict so if a call returns None, the script doesn't crash
+    activity_data = safe_dict(client.fetch_activity(yesterday_str))
+    sleep_data    = safe_dict(client.fetch_sleep(today_str))
+    hrv_data      = safe_dict(client.fetch_hrv(today_str))
+    spo2_data     = safe_dict(client.fetch_spo2(today_str))
+    rhr_data      = safe_dict(client.fetch_heart_rate(today_str))
 
-    # 3. Combine into a single "Context Record" for today's briefing
+    # 3. Combine into a single record
+    # This record is what is stored in Pinecone and sent to Claude
     combined_record = {
         "date": today_str,
         **activity_data,
@@ -643,14 +647,29 @@ def run_morning_pipeline():
         **rhr_data
     }
 
-    # 4. Filter out None values before Pinecone to avoid corrupting trends
+    # 4. Handle Missing Data
+    # If HRV or Sleep is missing (common if watch didn't sync), we don't want to store 0s
     if combined_record.get("hrv_rmssd") is None:
-        print("Warning: HRV missing. Sync watch? Analysis may be degraded.")
+        print("!! WARNING: HRV data is missing. Ensure Fitbit app is synced.")
 
-    # 5. SYNC & ANALYZE
-    index = init_pinecone()
-    store_day(index, combined_record)
-    history = get_rolling_summary(index, 7)
+    # 5. Pinecone Sync
+    try:
+        index = init_pinecone()
+        store_day(index, combined_record)
+        # Pull 7 days of context so Claude can see the 5% RHR spikes
+        history = get_rolling_summary(index, 7)
+    except Exception as e:
+        print(f"Pinecone Error: {e}")
+        history = "Historical data unavailable due to database error."
+
+    # 6. Analysis & Email
+    # Pass the session notes from your GitHub Action environment variables
+    session_info = f"{LAST_SESSION}: {SESSION_NOTES}" if LAST_SESSION else ""
     
-    analysis = get_analysis(combined_record, history, "")
-    send_email(f"Cortex — Briefing {today_str}", analysis, today_str)
+    analysis = get_analysis(combined_record, history, session_info)
+    
+    subject = f"Cortex Briefing — {datetime.now().strftime('%A, %b %d')}"
+    send_email(subject, analysis, today_str)
+
+if __name__ == "__main__":
+    run_morning_pipeline()
