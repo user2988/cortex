@@ -480,8 +480,9 @@ def get_analysis(today_metrics, rolling_summary, workout_context, avg_hrv, avg_r
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     
     message = client.messages.create(
-        model="claude-opus-4-5-20251101", # The 'Flagship' 4.5 tier
-        max_tokens=1500,
+        model="claude-opus-4-6", # February 2026 Stable Release
+        max_tokens=2000,         # 4.6 supports up to 128k output, but 2k is plenty for an email
+        thinking={"type": "adaptive", "effort": "high"}, # Ensures it double-checks the BP math
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": build_prompt(today_metrics, rolling_summary, workout_context, avg_hrv, avg_rhr)}]
     )
