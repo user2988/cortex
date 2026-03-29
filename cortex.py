@@ -1,7 +1,7 @@
 """
 Cortex — Personal Performance Intelligence
 Fetches Fitbit biometrics → stores in Pinecone → Claude analysis → morning email
-Runs automatically via GitHub Actions at 8:30am EST daily
+Runs automatically via GitHub Actions at 9:00am EST daily
 """
 
 import os
@@ -353,8 +353,8 @@ def get_rolling_summary(index, n=7):
 
 USER_PROFILE = """
 PERSONAL PROFILE:
-- Age range: 18-25
-- Bodyweight: 166-185 lbs (75-84 kg)
+- Age: 23
+- Bodyweight: 180 lbs (81.6 kg)
 - Training experience: Intermediate (1-3 years lifting)
 
 GOALS:
@@ -409,15 +409,6 @@ def build_prompt(today_metrics, rolling_summary, workout_context=""):
     is_first     = today.day == 1
     is_monday    = is_monday and not is_first
 
-    weekly_section = """
-7-Day Trends
-What patterns are emerging across the last 7 days? What is trending in the right or wrong direction? 2-3 sentences, data-driven, no repetition of what was said in Recovery Status.
-""" if is_monday else ""
-
-    monthly_section = """
-Monthly Progress
-Zoom out and assess the last 30 days. Is HRV baseline improving? Is RHR trending down? Are step goals being hit consistently? Is there measurable progress toward blood pressure normalisation? Write 3-4 sentences. This is the big picture — speak to trajectory, not daily noise.
-""" if is_first else ""
 
     return f"""
 {USER_PROFILE}
@@ -448,10 +439,6 @@ Rate recovery as Excellent, Good, Moderate, or Poor. One sentence on the rating,
 Training Recommendation — ALWAYS INCLUDE
 Should I train hard, train light, or recover today? Which muscle group is due based on yesterday's logged session. Keep it practical and specific — what to do, how hard to push, and why. One short paragraph. No jargon.
 
-{weekly_section}
-
-{monthly_section}
-
 The Full Picture — ALWAYS INCLUDE
 This is the connective tissue of the briefing. Write one flowing paragraph that ties together what happened last night, how it connects to recent trends, and what it means for the goals — muscle building, cardiovascular health, and blood pressure. Use the data to tell a story, not list observations. A 20-year-old should read this and immediately understand what is going on with their body and why it matters. Always include a specific note on blood pressure progress. Keep it conversational but intelligent. No bullet points.
 
@@ -469,7 +456,7 @@ Multi-metric flag — flag if 3 or more of the following are simultaneously true
 - HRV is 20% or more below your 7-day average
 - RHR is 8+ bpm above your 7-day average
 - Sleep under 5.5 hours (330 minutes)
-- SpO2 below 95%
+- SpO2 below 94%
 
 If triggered, write one concise paragraph explaining what the data is showing and why it matters today. If zero conditions are met, do not include this section at all — not even a heading.
 
@@ -499,8 +486,6 @@ def format_analysis_to_html(analysis):
     sections = [
         "Recovery Status",
         "Training Recommendation",
-        "7-Day Trends",
-        "Monthly Progress",
         "The Full Picture",
         "Risk Flags",
         "Action Items",
