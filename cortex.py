@@ -633,7 +633,26 @@ def send_email(subject, body, date_str):
     msg.set_content(body)
     msg['Subject'] = subject
     msg['From'] = EMAIL_SENDER
-    msg['To'] = EMAIL_RECIPIENT # Sending to yourself is the best test
+    msg['To'] = EMAIL_RECIPIENT # Send to myself
+
+    # This turns the Markdown-style text into a clean, formatted HTML layout
+    html_content = f"""
+    <html>
+        <body style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: auto;">
+            <div style="background-color: #f4f4f4; padding: 20px; border-radius: 10px;">
+                <h1 style="color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;">Cortex Daily Brief</h1>
+                <p style="font-size: 0.9em; color: #7f8c8d;">{date_str}</p>
+                <div style="white-space: pre-wrap;">
+                    {body.replace('## ', '<h2 style="color: #2980b9;">').replace('**', '<strong>').replace('**', '</strong>')}
+                </div>
+            </div>
+            <p style="font-size: 0.8em; text-align: center; color: #bdc3c7; margin-top: 20px;">
+                Sent via Cortex Engine | Opus 4.6
+            </p>
+        </body>
+    </html>
+    """
+    msg.add_alternative(html_content, subtype='html')
 
     print(f"Connecting to Gmail SSL (Port 465)...")
     try:
