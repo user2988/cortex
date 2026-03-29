@@ -489,10 +489,8 @@ def get_analysis(today_metrics, rolling_summary, workout_context, avg_hrv, avg_r
 
     message = client.messages.create(
         model="claude-opus-4-6", 
-        max_tokens=2048,
-        # We simplify this to the standard 'enabled' toggle 
-        # Opus 4.6 handles the 'effort' automatically based on the prompt complexity
-        thinking={"type": "enabled", "budget_tokens": 1024}, 
+        max_tokens=4096, # 4.6 needs room for both thinking and the response
+        thinking={"type": "adaptive"}, # Switched back to adaptive per the SDK warning
         system="You are an elite performance coach (Cortex). Write in prose. No emojis.",
         messages=[
             {
@@ -501,7 +499,13 @@ def get_analysis(today_metrics, rolling_summary, workout_context, avg_hrv, avg_r
             }
         ]
     )
-    return message.content[0].text
+    
+    # This specifically finds the TextBlock and skips the ThinkingBlock
+    for block in message.content:
+        if hasattr(block, 'text'):
+            return block.text
+            
+    return "Error: No text response generated."
 
 # ─────────────────────────────────────────────────────────────
 # PART 3 — EMAIL DELIVERY
