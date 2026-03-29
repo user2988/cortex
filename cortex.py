@@ -624,18 +624,34 @@ def build_email_html(analysis, briefing_date):
     """
 
 
-def send_email(subject, analysis, briefing_date):
-    msg            = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"]    = EMAIL_SENDER
-    msg["To"]      = EMAIL_RECIPIENT
-    msg.attach(MIMEText(analysis, "plain"))
-    msg.attach(MIMEText(build_email_html(analysis, briefing_date), "html"))
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-        server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-        server.sendmail(EMAIL_SENDER, EMAIL_RECIPIENT, msg.as_string())
-    print(f"Briefing sent to {EMAIL_RECIPIENT}")
+import smtplib
+from email.message import EmailMessage
 
+def send_email(subject, body, date_str):
+    # 1. Build a clean, modern email object
+    msg = EmailMessage()
+    msg.set_content(body)
+    msg['Subject'] = subject
+    msg['From'] = EMAIL_SENDER
+    msg['To'] = EMAIL_RECIPIENT # Sending to yourself is the best test
+
+    print(f"Connecting to Gmail SSL (Port 465)...")
+    try:
+        # 2. Use SMTP_SSL (Implicit SSL) - the most trusted cloud method
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            # If this line fails, it's the App Password
+            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            
+            # If this line fails, it's a Gmail internal relay block
+            server.send_message(msg)
+            
+        print("✅ SUCCESS: Message accepted by Gmail's outbound queue.")
+        print("Check your 'Sent' folder now.")
+        
+    except smtplib.SMTPAuthenticationError:
+        print("❌ AUTH FAILED: Your App Password is incorrect or 2-Step Auth is off.")
+    except Exception as e:
+        print(f"❌ SMTP ERROR: {e}")
 
 # --- Run the pipeline ---
 
