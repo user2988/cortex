@@ -3,6 +3,17 @@ import json
 import requests
 from datetime import datetime, timedelta
 
+# --- FETCH SLEEP RAW DEBUG ---
+sleep_raw = fetch_fitbit(f"https://api.fitbit.com/1.2/user/-/sleep/date/{today}.json")
+
+if not sleep_raw.get('sleep'):
+    print("!! API Check: The 'sleep' list is literally empty for this date.")
+    # Print the full JSON to see if Fitbit thinks today is actually tomorrow
+    print(f"Full Response: {sleep_raw}") 
+else:
+    print(f"Success: Found {len(sleep_raw['sleep'])} sleep logs.")
+
+
 # 1. TOKEN HANDLING (Using a refresh-first approach for GitHub Actions)
 REFRESH_TOKEN = os.environ.get("FITBIT_REFRESH_TOKEN")
 CLIENT_ID = os.environ.get("FITBIT_CLIENT_ID")
