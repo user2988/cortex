@@ -397,6 +397,11 @@ SYSTEM_PROMPT = """You are a personal fitness coach and sports science analyst w
 - Sleep quality and its impact on performance
 - Interpreting Fitbit wearable data
 
+CORE ANALYTIC RULES:
+1. STEP DEFICIT: If yesterday's steps are under 10,000, you must prioritize movement in the Action Items.
+2. BP MANAGEMENT: If today's RHR is 5% or more above the 7-day average, you must recommend Zone 2 cardio for blood pressure management.
+3. RECOVERY MISMATCH: If Sleep is high but HRV is low, prioritize CNS fatigue in your 'Full Picture' analysis.
+
 You write in a direct, professional tone. No emojis. No fluff.
 Write in clear prose paragraphs, not bullet points, except for the Action Items section.
 Your analysis should read like it came from a highly informed human coach, not an AI chatbot.
@@ -404,11 +409,6 @@ Do not use asterisks or any markdown formatting anywhere in your response. Write
 
 
 def build_prompt(today_metrics, rolling_summary, workout_context=""):
-    today        = date.today()
-    is_monday    = today.weekday() == 0
-    is_first     = today.day == 1
-    is_monday    = is_monday and not is_first
-
 
     return f"""
 {USER_PROFILE}
@@ -461,7 +461,13 @@ Multi-metric flag — flag if 3 or more of the following are simultaneously true
 If triggered, write one concise paragraph explaining what the data is showing and why it matters today. If zero conditions are met, do not include this section at all — not even a heading.
 
 Action Items — ALWAYS INCLUDE
-Exactly 4 specific things I should do today. Numbered list. No emojis. Terse and direct. At least one must relate to cardiovascular health or blood pressure goal.
+Exactly 4 specific things I should do today. Numbered list. No emojis. Terse and direct. 
+
+LOGIC FOR THIS SECTION:
+- If steps < 10,000, Item #1 must be a specific time to walk today.
+- If RHR is elevated >5% vs History, Item #2 must be a 20-min Zone 2 session for BP.
+- Always include one item for cardiovascular health.
+- If data is 'N/A', provide high-quality general coaching based on the goals.
 
 TONE: Write like a knowledgeable coach who has access to your biometric data. Smart and data-informed, but clear and direct. Never sacrifice clarity for technical precision. No emojis. No markdown bold. Prose only except Action Items.
 """
@@ -611,6 +617,7 @@ def send_email(subject, analysis, briefing_date):
 # --- Run the pipeline ---
 
 def run_morning_pipeline():
+    # Define the two dates
     today_str = datetime.now().strftime('%Y-%m-%d')
     yesterday_str = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
     
