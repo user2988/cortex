@@ -608,34 +608,42 @@ def send_email(subject, analysis, briefing_date):
     print(f"Briefing sent to {EMAIL_RECIPIENT}")
 
 
-def run_morning_pipeline():
-    from datetime import datetime, timedelta
-    
-    # 1. SET THE TARGET DATE (Yesterday)
-    target_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
-    print(f"--- Processing Data for: {target_date} ---")
+# --- Run the pipeline ---
 
+def run_morning_pipeline():
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    yesterday_str = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+    
     auth = FitbitAuth()
     client = FitbitClient(auth)
     
-    # 2. FETCH THE DATA (This is the real data from yesterday)
-    recovery_data = client.fetch_day(target_date) 
-
-    # 3. SYNC TO PINECONE
-    index = init_pinecone()
-    store_day(index, recovery_data)
-    history = get_rolling_summary(index, 7)
-
-    # 4. THE FIX: Pass 'recovery_data' directly to the analysis
-    # This ensures Claude sees the Sleep/HRV from 'target_date'
-    print("Sending to Claude...")
-    analysis = get_analysis(recovery_data, history, "")
-
-
-    # 5. SEND THE EMAIL
-    send_email(f"Cortex — Briefing {target_date}", analysis, target_date)
+    # 1. Fetch Activity from YESTERDAY
+    activity_data = client.fetch_activity(yesterday_str)
     
-    print("Pipeline complete.")
+    # 2. Fetch Sleep/HRV from TODAY (the sleep you just woke up from)
+    sleep_data = client.fetch_sleep(today_str)
+    hrv_data = client.fetch_hrv(today_str)
+    spo2_data = client.fetch_spo2(today_str)
+    rhr_data = client.fetch_heart_rate(today_str)
 
-if __name__ == "__main__":
-    run_morning_pipeline()
+    # 3. Combine into a single "Context Record" for today's briefing
+    combined_record = {
+        "date": today_str,
+        **activity_data,
+        **sleep_data,
+        **hrv_data,
+        **spo2_data,
+        **rhr_data
+    }
+
+    # 4. Filter out None values before Pinecone to avoid corrupting trends
+    if combined_record.get("hrv_rmssd") is None:
+        print("Warning: HRV missing. Sync watch? Analysis may be degraded.")
+
+    # 5. SYNC & ANALYZE
+    index = init_pinecone()
+    store_day(index, combined_record)
+    history = get_rolling_summary(index, 7)
+    
+    analysis = get_analysis(combined_record, history, "")
+    send_email(f"Cortex — Briefing {today_str}", analysis, today_str)
