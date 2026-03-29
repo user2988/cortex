@@ -1,7 +1,7 @@
 """
 Cortex — Personal Performance Intelligence
 Fetches Fitbit biometrics → stores in Pinecone → Claude analysis → morning email
-Runs automatically via GitHub Actions at 9:00am EST daily
+Runs automatically via GitHub Actions at 8:30am EST daily
 """
 
 import os
