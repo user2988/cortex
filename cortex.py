@@ -478,15 +478,13 @@ def safe_dict(data):
 
 def get_analysis(today_metrics, rolling_summary, workout_context=""):
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    # Corrected model name to 3.5 Sonnet (the current industry leader for this task)
     message = client.messages.create(
-        model="claude-3-5-sonnet-20240620", 
+        model="claude-3-5-opus-20240229", 
         max_tokens=1500,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": build_prompt(today_metrics, rolling_summary, workout_context)}]
     )
     return message.content[0].text
-
 
 # ─────────────────────────────────────────────────────────────
 # PART 3 — EMAIL DELIVERY
