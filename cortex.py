@@ -407,26 +407,35 @@ Write in clear prose paragraphs, not bullet points, except for the Action Items 
 Your analysis should read like it came from a highly informed human coach, not an AI chatbot.
 Do not use asterisks or any markdown formatting anywhere in your response. Write section headers as plain text only."""
 
-
-def build_prompt(today_metrics, rolling_summary, workout_context=""):
+def build_prompt(today_metrics, rolling_summary, workout_context, avg_hrv, avg_rhr):
+    # Ensure we have clean data for the string formatting
+    today = safe_dict(today_metrics)
+    
+    # Calculate the 5% RHR threshold for the Action Item logic
+    rhr_threshold = round(float(avg_rhr) * 1.05, 1) if avg_rhr != "N/A" else "N/A"
 
     return f"""
 {USER_PROFILE}
 
+7-DAY BASELINES (REFERENCE):
+- Average HRV: {avg_hrv} ms
+- Average Resting Heart Rate: {avg_rhr} bpm
+- RHR +5% Threshold: {rhr_threshold} bpm
+
 YESTERDAY'S TRAINING:
 {workout_context if workout_context else "No session logged."}
 
-TODAY'S METRICS ({today_metrics.get('date')}):
-- Sleep: {today_metrics.get('sleep_minutes', 'N/A')} min | Efficiency: {today_metrics.get('sleep_score', 'N/A')}%
-- Sleep Stages: Deep {today_metrics.get('stage_deep', 'N/A')}min | REM {today_metrics.get('stage_rem', 'N/A')}min | Light {today_metrics.get('stage_light', 'N/A')}min
-- HRV (RMSSD): {today_metrics.get('hrv_rmssd', 'N/A')} ms
-- Resting Heart Rate: {today_metrics.get('resting_heart_rate', 'N/A')} bpm
-- SpO2: {today_metrics.get('spo2_avg', 'N/A')}%
-- Steps: {today_metrics.get('steps', 'N/A')}
-- Active Zone Minutes: {today_metrics.get('active_zone_minutes', 'N/A')}
-- Calories Out: {today_metrics.get('calories_out', 'N/A')}
-- Distance: {today_metrics.get('distance_km', 'N/A')} km
-- VO2 Max: {today_metrics.get('vo2_max', 'N/A')}
+TODAY'S METRICS ({today.get('date')}):
+- Sleep: {today.get('sleep_minutes', 'N/A')} min | Efficiency: {today.get('sleep_score', 'N/A')}%
+- Sleep Stages: Deep {today.get('stage_deep', 'N/A')}min | REM {today.get('stage_rem', 'N/A')}min | Light {today.get('stage_light', 'N/A')}min
+- HRV (RMSSD): {today.get('hrv_rmssd', 'N/A')} ms
+- Resting Heart Rate: {today.get('resting_heart_rate', 'N/A')} bpm
+- SpO2: {today.get('spo2_avg', 'N/A')}%
+- Steps: {today.get('steps', 'N/A')}
+- Active Zone Minutes: {today.get('active_zone_minutes', 'N/A')}
+- Calories Out: {today.get('calories_out', 'N/A')}
+- Distance: {today.get('distance_km', 'N/A')} km
+- VO2 Max: {today.get('vo2_max', 'N/A')}
 
 ROLLING HISTORY:
 {rolling_summary}
@@ -447,8 +456,8 @@ Before writing any other section, silently check every threshold below against t
 
 Individual thresholds:
 - Sleep was under 300 minutes (5 hours) → MUST flag
-- HRV is 25% or more below the 7-day average → MUST flag
-- RHR is 10+ bpm above the 7-day average → MUST flag
+- HRV is 25% or more below the 7-day average ({avg_hrv}) → MUST flag
+- RHR is 10+ bpm above the 7-day average ({avg_rhr}) → MUST flag
 - SpO2 dropped below 93% → MUST flag
 - HRV has declined for 3 or more consecutive days → MUST flag
 
@@ -465,14 +474,13 @@ Exactly 4 specific things I should do today. Numbered list. No emojis. Terse and
 
 LOGIC FOR THIS SECTION:
 - If steps < 10,000, Item #1 must be a specific time to walk today.
-- If RHR is elevated >5% vs History, Item #2 must be a 20-min Zone 2 session for BP.
+- If RHR is elevated >5% vs History (Today: {today.get('resting_heart_rate')} vs Avg: {avg_rhr}), Item #2 must be a 20-min Zone 2 session for BP.
 - Always include one item for cardiovascular health.
 - If data is 'N/A', provide high-quality general coaching based on the goals.
 
 TONE: Write like a knowledgeable coach who has access to your biometric data. Smart and data-informed, but clear and direct. Never sacrifice clarity for technical precision. No emojis. No markdown bold. Prose only except Action Items.
 """
 
-# Helper to prevent unpacking crashes
 def safe_dict(data):
     return data if isinstance(data, dict) else {}
 
