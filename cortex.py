@@ -623,55 +623,160 @@ def build_email_html(analysis, briefing_date):
     </html>
     """
 
-
 import smtplib
 from email.message import EmailMessage
 
-def send_email(subject, body, date_str):
-    # 1. Build a clean, modern email object
-    msg = EmailMessage()
-    msg.set_content(body)
-    msg['Subject'] = subject
-    msg['From'] = EMAIL_SENDER
-    msg['To'] = EMAIL_RECIPIENT # Send to myself
+def format_analysis_to_html(analysis):
+    sections = [
+        "Recovery Status",
+        "Training Recommendation",
+        "The Full Picture",
+        "Risk Flags",
+        "Action Items",
+    ]
+    present_sections = [s for s in sections if s in analysis]
+    html_sections = ""
 
-    # This turns the Markdown-style text into a clean, formatted HTML layout
-    html_content = f"""
-    <html>
-        <body style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: auto;">
-            <div style="background-color: #f4f4f4; padding: 20px; border-radius: 10px;">
-                <h1 style="color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;">Cortex Daily Brief</h1>
-                <p style="font-size: 0.9em; color: #7f8c8d;">{date_str}</p>
-                <div style="white-space: pre-wrap;">
-                    {body.replace('## ', '<h2 style="color: #2980b9;">').replace('**', '<strong>').replace('**', '</strong>')}
+    for i, section in enumerate(present_sections):
+        try:
+            start = analysis.index(section) + len(section)
+            end = analysis.index(present_sections[i + 1]) if i + 1 < len(present_sections) else len(analysis)
+            content = analysis[start:end].strip().replace("**", "").strip()
+
+            if section == "Action Items":
+                items = re.findall(r'\d+\.?\s+(.+?)(?=\d+\.|$)', content, re.DOTALL)
+                items = [item.strip() for item in items if item.strip()]
+                if items:
+                    list_html = "".join([
+                        f'<tr><td style="padding:10px 0;border-bottom:1px solid #f0f0f0;font-size:15px;color:#1a1a1a;line-height:1.6">'
+                        f'<span style="font-weight:600;margin-right:8px;color:#000">{j+1}.</span>{item}</td></tr>'
+                        for j, item in enumerate(items)
+                    ])
+                    content_html = f'<table style="width:100%;border-collapse:collapse">{list_html}</table>'
+                else:
+                    content_html = f'<p style="font-size:15px;color:#1a1a1a;line-height:1.8;margin:0">{content}</p>'
+            else:
+                paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
+                content_html = "".join([
+                    f'<p style="font-size:15px;color:#1a1a1a;line-height:1.8;margin:0 0 12px">{p}</p>'
+                    for p in paragraphs
+                ])
+
+            html_sections += f"""
+            <tr>
+              <td style="padding:28px 0 0">
+                <p style="font-size:13px;font-weight:600;color:#000;margin:0 10px;font-family:Arial,sans-serif">{section.upper()}</p>
+                <div style="border-top:2px solid #000;padding-top:14px">
+                  {content_html}
                 </div>
-            </div>
-            <p style="font-size: 0.8em; text-align: center; color: #bdc3c7; margin-top: 20px;">
-                Sent via Cortex Engine | Opus 4.6
-            </p>
-        </body>
+              </td>
+            </tr>
+            """
+        except ValueError:
+            continue
+            
+    return html_sections
+
+
+def build_email_html(analysis, briefing_date):
+    sections_html = format_analysis_to_html(analysis)
+    try:
+        d = datetime.strptime(briefing_date, "%Y-%m-%d")
+        formatted_date = d.strftime("%A, %B %-d, %Y")
+    except Exception:
+        formatted_date = briefing_date
+
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <body style="margin:0;padding:0;background:#ffffff;font-family:Georgia,serif">
+      <table width="100%" cellpadding="0" cellspacing="0" style="background:#ffffff">
+        <tr>
+          <td align="center" style="padding:40px 20px">
+            <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
+              <tr>
+                <td align="center" style="padding-bottom:24px">
+                  <div style="display:inline-block;background:#000000;padding:10px 28px">
+                    <span style="font-family:Arial,sans-serif;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:3px">CORTEX</span>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td align="center" style="padding-bottom:8px">
+                  <h1 style="font-family:Georgia,serif;font-size:42px;font-weight:700;color:#000000;margin:0;line-height:1.1">Morning Briefing</h1>
+                </td>
+              </tr>
+              <tr>
+                <td align="center" style="padding-bottom:24px">
+                  <p style="font-family:Arial,sans-serif;font-size:14px;font-weight:600;color:#000;margin:0">{formatted_date}</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="border-bottom:2px solid #000;padding-bottom:24px"></td>
+              </tr>
+              <tr>
+                <td align="center" style="padding:16px 0 8px">
+                  <p style="font-family:Arial,sans-serif;font-size:11px;color:#999;margin:0;letter-spacing:1px;text-transform:uppercase">Personal Performance Intelligence</p>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <table width="100%" cellpadding="0" cellspacing="0">
+                    {sections_html}
+                  </table>
+                </td>
+              </tr>
+              <tr>
+                <td style="border-top:1px solid #e0e0e0;padding-top:24px;margin-top:40px">
+                  <p style="font-family:Arial,sans-serif;font-size:11px;color:#aaa;text-align:center;margin:0;line-height:1.8">
+                    Cortex — Personal Performance Intelligence<br>
+                    Generated daily from your Fitbit biometrics
+                  </p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </body>
     </html>
     """
-    msg.add_alternative(html_content, subtype='html')
+
+def send_email(subject, analysis, briefing_date):
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    import smtplib
+
+    # 1. Prepare the Multi-Part Message (Text + HTML)
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = EMAIL_SENDER
+    msg["To"] = EMAIL_RECIPIENT
+
+    # Attach Plain Text for backup
+    msg.attach(MIMEText(analysis, "plain"))
+    
+    # Generate and Attach the High-End CORTEX HTML
+    html_body = build_email_html(analysis, briefing_date)
+    msg.attach(MIMEText(html_body, "html"))
 
     print(f"Connecting to Gmail SSL (Port 465)...")
     try:
-        # 2. Use SMTP_SSL (Implicit SSL) - the most trusted cloud method
+        # 2. Execute the Secure Handshake
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            # If this line fails, it's the App Password
+            # Login using the 16-character App Password
             server.login(EMAIL_SENDER, EMAIL_PASSWORD)
             
-            # If this line fails, it's a Gmail internal relay block
+            # Send the multi-part message
             server.send_message(msg)
             
-        print("✅ SUCCESS: Message accepted by Gmail's outbound queue.")
-        print("Check your 'Sent' folder now.")
+        print("✅ SUCCESS: Briefing accepted by Gmail. Check your 'Sent' folder.")
         
     except smtplib.SMTPAuthenticationError:
-        print("❌ AUTH FAILED: Your App Password is incorrect or 2-Step Auth is off.")
+        print("❌ AUTH FAILED: Check your App Password or 2-Step Auth status.")
     except Exception as e:
         print(f"❌ SMTP ERROR: {e}")
-
+        
 # --- Run the pipeline ---
 
 def run_morning_pipeline():
