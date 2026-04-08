@@ -225,8 +225,7 @@ class FitbitClient:
         print("HR VALUE:", value)
         print("----------------------------")
 
-    return {"resting_heart_rate": value.get("restingHeartRate")}
-
+        return {"resting_heart_rate": value.get("restingHeartRate")}
         
         return {
             "steps":                   summary.get("steps"),
