@@ -219,6 +219,14 @@ class FitbitClient:
     def fetch_activity(self, d):
         data    = self._get(f"/1/user/-/activities/date/{d}.json")
         summary = data.get("summary", {})
+
+        print("----- DEBUG ACTIVITY -----")
+        print("DATE:", d)
+        print("FULL SUMMARY:", summary)
+        print("AZM FIELD:", summary.get("activeZoneMinutes"))
+        print("--------------------------")
+
+        
         return {
             "steps":                   summary.get("steps"),
             "calories_out":            summary.get("caloriesOut"),
