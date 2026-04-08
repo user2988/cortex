@@ -224,6 +224,7 @@ class FitbitClient:
         print("DATE:", d)
         print("FULL SUMMARY:", summary)
         print("AZM FIELD:", summary.get("activeZoneMinutes"))
+        print("HR VALUE:", value)
         print("--------------------------")
 
         
