@@ -219,14 +219,7 @@ class FitbitClient:
     def fetch_activity(self, d):
         data    = self._get(f"/1/user/-/activities/date/{d}.json")
         summary = data.get("summary", {})
-
-        # DEBUG
-        print("----- DEBUG HEART RATE -----")
-        print("DATE:", d)
-        print("HR VALUE:", value)
-        print("----------------------------")
-
-        return {"resting_heart_rate": value.get("restingHeartRate")}        
+       
         return {
             "steps":                   summary.get("steps"),
             "calories_out":            summary.get("caloriesOut"),
