@@ -220,12 +220,12 @@ class FitbitClient:
         data    = self._get(f"/1/user/-/activities/date/{d}.json")
         summary = data.get("summary", {})
 
-        print("----- DEBUG ACTIVITY -----")
+        print("----- DEBUG HEART RATE -----")
         print("DATE:", d)
-        print("FULL SUMMARY:", summary)
-        print("AZM FIELD:", summary.get("activeZoneMinutes"))
         print("HR VALUE:", value)
-        print("--------------------------")
+        print("----------------------------")
+
+    return {"resting_heart_rate": value.get("restingHeartRate")}
 
         
         return {
