@@ -212,8 +212,14 @@ class FitbitClient:
 
     def fetch_spo2(self, d):
         data  = self._get(f"/1/user/-/spo2/date/{d}.json")
-        print(f"  [debug] spo2 raw response: {data}")
         value = data.get("value", {})
+        # Fitbit sometimes keys SpO2 to the sleep-start date rather than wake-up date
+        # If today returns empty, fall back to the previous date
+        if not value:
+            from datetime import date as _date, timedelta
+            prev = (_date.fromisoformat(d) - timedelta(days=1)).isoformat()
+            data  = self._get(f"/1/user/-/spo2/date/{prev}.json")
+            value = data.get("value", {})
         return {
             "spo2_avg": value.get("avg"),
             "spo2_min": value.get("min"),
