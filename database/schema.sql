@@ -36,7 +36,6 @@ CREATE TABLE IF NOT EXISTS biometrics (
     calories_burned         INTEGER,
     distance_km             NUMERIC(6, 3),
     vo2_max                 NUMERIC(5, 2),
-    hr_recovery_bpm         INTEGER,
     time_in_fat_burn_min    INTEGER,
     time_in_cardio_min      INTEGER,
     time_in_peak_min        INTEGER,
