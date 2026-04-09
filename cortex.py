@@ -50,7 +50,7 @@ EMAIL_RECIPIENT      = os.environ["EMAIL_RECIPIENT"]
 class FitbitAuth:
     AUTH_URL  = "https://www.fitbit.com/oauth2/authorize"
     TOKEN_URL = "https://api.fitbit.com/oauth2/token"
-    SCOPES    = "sleep heartrate activity oxygen_saturation profile"
+    SCOPES    = "sleep heartrate activity oxygen_saturation cardio_fitness profile"
 
     def __init__(self):
         self.tokens = self._load_tokens()
@@ -668,13 +668,23 @@ def run_morning_pipeline():
     client = FitbitClient(auth)
 
     # Fetch all metrics — activity from yesterday, recovery metrics from today
+    # Each fetch is wrapped individually so one failure doesn't crash the pipeline
     print(f"Syncing {today_str}...")
-    activity = client.fetch_activity(yesterday_str)
-    sleep    = client.fetch_sleep(today_str)
-    hrv      = client.fetch_hrv(today_str)
-    rhr      = client.fetch_heart_rate(today_str)
-    spo2     = client.fetch_spo2(today_str)
-    vo2max   = client.fetch_vo2max(today_str)
+    def safe_fetch(name, fn, *args):
+        try:
+            result = fn(*args)
+            print(f"  {name} OK")
+            return result
+        except Exception as e:
+            print(f"  {name} FAILED: {e}")
+            return {}
+
+    activity = safe_fetch("activity", client.fetch_activity, yesterday_str)
+    sleep    = safe_fetch("sleep",    client.fetch_sleep,    today_str)
+    hrv      = safe_fetch("hrv",      client.fetch_hrv,      today_str)
+    rhr      = safe_fetch("rhr",      client.fetch_heart_rate, today_str)
+    spo2     = safe_fetch("spo2",     client.fetch_spo2,     today_str)
+    vo2max   = safe_fetch("vo2max",   client.fetch_vo2max,   today_str)
 
     # Record is keyed to the activity date (yesterday).
     # Sleep/HRV/RHR/SpO2 are from the following night — the 1-day lag recovery window.
