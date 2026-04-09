@@ -42,10 +42,6 @@ EMAIL_SENDER         = os.environ["EMAIL_SENDER"]
 EMAIL_PASSWORD       = os.environ["EMAIL_PASSWORD"]
 EMAIL_RECIPIENT      = os.environ["EMAIL_RECIPIENT"]
 
-# Workout context — passed in via GitHub Actions input or environment variable
-LAST_SESSION         = os.environ.get("LAST_SESSION", "")
-SESSION_NOTES        = os.environ.get("SESSION_NOTES", "")
-
 
 # ─────────────────────────────────────────────────────────────
 # PART 1 — FITBIT AUTH
@@ -168,7 +164,7 @@ class FitbitAuth:
 
 
 # ─────────────────────────────────────────────────────────────
-# PART 1 — FITBIT DATA FETCHING
+# PART 2 — FITBIT DATA FETCHING
 # ─────────────────────────────────────────────────────────────
 
 class FitbitClient:
@@ -268,7 +264,7 @@ class FitbitClient:
 
 
 # ─────────────────────────────────────────────────────────────
-# PART 2 — PINECONE RAG
+# PART 3 — PINECONE STORAGE & RETRIEVAL
 # ─────────────────────────────────────────────────────────────
 
 METRIC_RANGES = {
@@ -349,7 +345,7 @@ def get_rolling_summary(index, n=7):
 
 
 # ─────────────────────────────────────────────────────────────
-# PART 3 — CLAUDE ANALYSIS
+# PART 4 — CLAUDE ANALYSIS
 # ─────────────────────────────────────────────────────────────
 
 USER_PROFILE = """
@@ -364,9 +360,8 @@ GOALS:
 - Long-term: Establish consistent HRV and RHR baselines in the healthy range
 
 TRAINING SCHEDULE:
-- 4 days/week lifting in this exact rotation: Legs, Back, Chest, Arms (1 hr each, hypertrophy rep ranges 8-12)
-- Based on yesterday's logged session, determine which muscle group is due today
-- Daily: 10,000 steps minimum regardless of training day
+- 4 days/week lifting: Legs, Back, Chest, Arms rotation (hypertrophy rep ranges 8-12)
+- Daily: 10,000 steps minimum
 - No full rest days — active recovery on non-lifting days
 
 LIFESTYLE CONTEXT:
@@ -391,32 +386,8 @@ BLOOD PRESSURE:
 - Flag any metrics that are working against BP goal
 """
 
-SYSTEM_PROMPT = """You are a personal fitness coach and sports science analyst with deep expertise in:
-- HRV interpretation and recovery science
-- Hypertrophy training programming
-- Blood pressure reduction through exercise
-- Sleep quality and its impact on performance
-- Interpreting Fitbit wearable data
-
-CORE ANALYTIC RULES:
-1. STEP DEFICIT: If yesterday's steps are under 10,000, you must prioritize movement in the Action Items.
-2. BP MANAGEMENT: If today's RHR is 5% or more above the 7-day average, you must recommend Zone 2 cardio for blood pressure management.
-3. RECOVERY MISMATCH: If Sleep is high but HRV is low, prioritize CNS fatigue in your 'Full Picture' analysis.
-
-STRICT FORMATING RULE: Always render physical metrics, times, and data points as digits (e.g., 72 ms, 6h 19m, 2,742 kcal). 
-Never write out numbers as words (e.g., do not write "seventy-two").
-
-You write in a direct, professional tone. No emojis. No fluff.
-Write in clear prose paragraphs, not bullet points, except for the Action Items section.
-Your analysis should read like it came from a highly informed human coach, not an AI chatbot.
-Do not use asterisks or any markdown formatting anywhere in your response. Write section headers as plain text only."""
-
-def build_prompt(today_metrics, rolling_summary, workout_context, avg_hrv, avg_rhr):
-    # Ensure we have clean data for the string formatting
+def build_prompt(today_metrics, rolling_summary, avg_hrv, avg_rhr):
     today = safe_dict(today_metrics)
-    
-    # Calculate the 5% RHR threshold for the Action Item logic
-    rhr_threshold = round(float(avg_rhr) * 1.05, 1) if avg_rhr != "N/A" else "N/A"
 
     return f"""
 {USER_PROFILE}
@@ -424,10 +395,6 @@ def build_prompt(today_metrics, rolling_summary, workout_context, avg_hrv, avg_r
 7-DAY BASELINES (REFERENCE):
 - Average HRV: {avg_hrv} ms
 - Average Resting Heart Rate: {avg_rhr} bpm
-- RHR +5% Threshold: {rhr_threshold} bpm
-
-YESTERDAY'S TRAINING:
-{workout_context if workout_context else "No session logged."}
 
 TODAY'S METRICS ({today.get('date')}):
 - Sleep: {today.get('sleep_minutes', 'N/A')} min | Efficiency: {today.get('sleep_score', 'N/A')}%
@@ -444,19 +411,13 @@ TODAY'S METRICS ({today.get('date')}):
 ROLLING HISTORY:
 {rolling_summary}
 
-Write my morning briefing with the following sections in this exact order. Only include sections marked as active for today.
+Write my morning briefing with the following sections in this exact order.
 
-Recovery Status — ALWAYS INCLUDE
-Rate recovery as Excellent, Good, Moderate, or Poor. One sentence on the rating, then 2 sentences explaining why in plain terms. Use the numbers but make them mean something.
-
-Training Recommendation — ALWAYS INCLUDE
-Should I train hard, train light, or recover today? Which muscle group is due based on yesterday's logged session. Keep it practical and specific — what to do, how hard to push, and why. One short paragraph. No jargon.
-
-The Full Picture — ALWAYS INCLUDE
-This is the connective tissue of the briefing. Write one flowing paragraph that ties together what happened last night, how it connects to recent trends, and what it means for the goals — muscle building, cardiovascular health, and blood pressure. Use the data to tell a story, not list observations. A 20-year-old should read this and immediately understand what is going on with their body and why it matters. Always include a specific note on blood pressure progress. Keep it conversational but intelligent. No bullet points.
+Recovery & Activity Summary — ALWAYS INCLUDE
+Rate recovery as Excellent, Good, Moderate, or Poor in the opening sentence. Then write one flowing paragraph that covers yesterday's activity and last night's recovery together — what the data shows, how it connects to recent trends, and what it means for the goals (cardiovascular health and blood pressure). Use the numbers but make them mean something. Clear and direct, not a list of observations.
 
 Risk Flags — CONDITIONAL
-Before writing any other section, silently check every threshold below against today's exact metrics. If ANY single condition is met, you MUST include this section. Do not interpret or use judgment — these are hard rules.
+Silently check every threshold below against today's exact metrics. If ANY single condition is met, you MUST include this section. Do not use judgment — these are hard rules.
 
 Individual thresholds:
 - Sleep was under 300 minutes (5 hours) → MUST flag
@@ -471,35 +432,26 @@ Multi-metric flag — flag if 3 or more of the following are simultaneously true
 - Sleep under 5.5 hours (330 minutes)
 - SpO2 below 94%
 
-If triggered, write one concise paragraph explaining what the data is showing and why it matters today. If zero conditions are met, do not include this section at all — not even a heading.
+If triggered, write one concise paragraph explaining what the data is showing and why it matters. If zero conditions are met, do not include this section at all — not even a heading.
 
-Action Items — ALWAYS INCLUDE
-Exactly 4 specific things I should do today. Numbered list. No emojis. Terse and direct. 
-
-LOGIC FOR THIS SECTION:
-- If steps < 10,000, Item #1 must be a specific time to walk today.
-- If RHR is elevated >5% vs History (Today: {today.get('resting_heart_rate')} vs Avg: {avg_rhr}), Item #2 must be a 20-min Zone 2 session for BP.
-- Always include one item for cardiovascular health.
-- If data is 'N/A', provide high-quality general coaching based on the goals.
-
-TONE: Write like a knowledgeable coach who has access to your biometric data. Smart and data-informed, but clear and direct. Never sacrifice clarity for technical precision. No emojis. No markdown bold. Prose only except Action Items.
+TONE: Data-informed and direct. No emojis. No markdown bold. Prose only. Write like a knowledgeable analyst reading the numbers, not a coach giving orders.
 """
 
 def safe_dict(data):
     return data if isinstance(data, dict) else {}
 
-def get_analysis(today_metrics, rolling_summary, workout_context, avg_hrv, avg_rhr):
+def get_analysis(today_metrics, rolling_summary, avg_hrv, avg_rhr):
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     message = client.messages.create(
-        model="claude-opus-4-6", 
-        max_tokens=4096, # 4.6 needs room for both thinking and the response
-        thinking={"type": "adaptive"}, # Switched back to adaptive per the SDK warning
-        system="You are an elite performance coach (Cortex). Write in prose. No emojis.",
+        model="claude-opus-4-6",
+        max_tokens=4096,
+        thinking={"type": "adaptive"},
+        system="You are Cortex, a personal biometric intelligence system. Write in prose. No emojis.",
         messages=[
             {
-                "role": "user", 
-                "content": build_prompt(today_metrics, rolling_summary, workout_context, avg_hrv, avg_rhr)
+                "role": "user",
+                "content": build_prompt(today_metrics, rolling_summary, avg_hrv, avg_rhr)
             }
         ]
     )
@@ -512,16 +464,13 @@ def get_analysis(today_metrics, rolling_summary, workout_context, avg_hrv, avg_r
     return "Error: No text response generated."
 
 # ─────────────────────────────────────────────────────────────
-# PART 3 — EMAIL DELIVERY
+# PART 5 — EMAIL DELIVERY
 # ─────────────────────────────────────────────────────────────
 
 def format_analysis_to_html(analysis):
     sections = [
-        "Recovery Status",
-        "Training Recommendation",
-        "The Full Picture",
+        "Recovery & Activity Summary",
         "Risk Flags",
-        "Action Items",
     ]
     present_sections = [s for s in sections if s in analysis]
     html_sections = ""
@@ -532,24 +481,11 @@ def format_analysis_to_html(analysis):
             end = analysis.index(present_sections[i + 1]) if i + 1 < len(present_sections) else len(analysis)
             content = analysis[start:end].strip().replace("**", "").strip()
 
-            if section == "Action Items":
-                items = re.findall(r'\d+\.?\s+(.+?)(?=\d+\.|$)', content, re.DOTALL)
-                items = [item.strip() for item in items if item.strip()]
-                if items:
-                    list_html = "".join([
-                        f'<tr><td style="padding:10px 0;border-bottom:1px solid #f0f0f0;font-size:15px;color:#1a1a1a;line-height:1.6">'
-                        f'<span style="font-weight:600;margin-right:8px;color:#000">{j+1}.</span>{item}</td></tr>'
-                        for j, item in enumerate(items)
-                    ])
-                    content_html = f'<table style="width:100%;border-collapse:collapse">{list_html}</table>'
-                else:
-                    content_html = f'<p style="font-size:15px;color:#1a1a1a;line-height:1.8;margin:0">{content}</p>'
-            else:
-                paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
-                content_html = "".join([
-                    f'<p style="font-size:15px;color:#1a1a1a;line-height:1.8;margin:0 0 12px">{p}</p>'
-                    for p in paragraphs
-                ])
+            paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
+            content_html = "".join([
+                f'<p style="font-size:15px;color:#1a1a1a;line-height:1.8;margin:0 0 12px">{p}</p>'
+                for p in paragraphs
+            ])
 
             html_sections += f"""
             <tr>
@@ -632,10 +568,6 @@ def build_email_html(analysis, briefing_date):
     """
 
 def send_email(subject, analysis, briefing_date):
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
-    import smtplib
-
     # 1. Prepare the Multi-Part Message (Text + HTML)
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -704,9 +636,8 @@ def run_morning_pipeline():
     rolling_summary = get_rolling_summary(index)
 
     # Generate analysis
-    session_info = f"{LAST_SESSION}: {SESSION_NOTES}" if LAST_SESSION else ""
     print("Calling Opus 4.6...")
-    analysis = get_analysis(combined_record, rolling_summary, session_info, avg_hrv, avg_rhr)
+    analysis = get_analysis(combined_record, rolling_summary, avg_hrv, avg_rhr)
 
     # Deliver
     print("Sending email...")

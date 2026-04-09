@@ -4,15 +4,6 @@ on:
     - cron: '30 12 * * *'  # 8:30am EDT (UTC-4, Mar–Nov)
     # - cron: '30 13 * * *'  # 8:30am EST (UTC-5, Nov–Mar)
   workflow_dispatch:
-    inputs:
-      last_session:
-        description: 'What did you train yesterday? (Legs / Back / Chest / Arms / Rest)'
-        required: false
-        default: ''
-      session_notes:
-        description: 'Any notes? (optional)'
-        required: false
-        default: ''
 jobs:
   run-Cortex:
     runs-on: ubuntu-latest
@@ -36,8 +27,6 @@ jobs:
           EMAIL_SENDER:         ${{ secrets.EMAIL_SENDER }}
           EMAIL_PASSWORD:       ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_RECIPIENT:      ${{ secrets.EMAIL_RECIPIENT }}
-          LAST_SESSION:         ${{ github.event.inputs.last_session }}
-          SESSION_NOTES:        ${{ github.event.inputs.session_notes }}
         run: python cortex.py
       - name: Save updated Fitbit tokens
         if: always()
