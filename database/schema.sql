@@ -45,6 +45,10 @@ CREATE TABLE IF NOT EXISTS biometrics (
 );
 
 
+-- Now ensure sleep_score exists
+ALTER TABLE biometrics
+ADD COLUMN IF NOT EXISTS sleep_score INTEGER;
+
 -- Nutrition — one row per day
 -- Populated from Cronometer CSV export (v2)
 -- All 84 Cronometer nutrients stored; priority subset noted in PRD
