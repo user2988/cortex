@@ -524,121 +524,6 @@ def format_analysis_to_html(analysis):
         "Action Items",
     ]
     present_sections = [s for s in sections if s in analysis]
-    html_sections    = ""
-
-    for i, section in enumerate(present_sections):
-        start = analysis.index(section) + len(section)
-        end   = analysis.index(present_sections[i + 1]) if i + 1 < len(present_sections) else len(analysis)
-        content = analysis[start:end].strip().replace("**", "").strip()
-
-        if section == "Action Items":
-            items = re.findall(r'\d+\.?\s+(.+?)(?=\d+\.|$)', content, re.DOTALL)
-            items = [item.strip() for item in items if item.strip()]
-            if items:
-                list_html    = "".join([
-                    f'<tr><td style="padding:10px 0;border-bottom:1px solid #f0f0f0;font-size:15px;color:#1a1a1a;line-height:1.6">'
-                    f'<span style="font-weight:600;margin-right:8px;color:#000">{j+1}.</span>{item}</td></tr>'
-                    for j, item in enumerate(items)
-                ])
-                content_html = f'<table style="width:100%;border-collapse:collapse">{list_html}</table>'
-            else:
-                content_html = f'<p style="font-size:15px;color:#1a1a1a;line-height:1.8;margin:0">{content}</p>'
-        else:
-            paragraphs   = [p.strip() for p in content.split("\n\n") if p.strip()]
-            content_html = "".join([
-                f'<p style="font-size:15px;color:#1a1a1a;line-height:1.8;margin:0 0 12px">{p}</p>'
-                for p in paragraphs
-            ])
-
-        html_sections += f"""
-        <tr>
-          <td style="padding:28px 0 0">
-            <p style="font-size:13px;font-weight:600;color:#000;margin:0 0 10px;font-family:Arial,sans-serif">{section}</p>
-            <div style="border-top:2px solid #000;padding-top:14px">
-              {content_html}
-            </div>
-          </td>
-        </tr>
-"""
-    return html_sections
-
-
-def build_email_html(analysis, briefing_date):
-    sections_html = format_analysis_to_html(analysis)
-    try:
-        d              = datetime.strptime(briefing_date, "%Y-%m-%d")
-        formatted_date = d.strftime("%A, %B %-d, %Y")
-    except Exception:
-        formatted_date = briefing_date
-
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <body style="margin:0;padding:0;background:#ffffff;font-family:Georgia,serif">
-      <table width="100%" cellpadding="0" cellspacing="0" style="background:#ffffff">
-        <tr>
-          <td align="center" style="padding:40px 20px">
-            <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
-              <tr>
-                <td align="center" style="padding-bottom:24px">
-                  <div style="display:inline-block;background:#000000;padding:10px 28px">
-                    <span style="font-family:Arial,sans-serif;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:3px">CORTEX</span>
-                  </div>
-                </td>
-              </tr>
-              <tr>
-                <td align="center" style="padding-bottom:8px">
-                  <h1 style="font-family:Georgia,serif;font-size:42px;font-weight:700;color:#000000;margin:0;line-height:1.1">Morning Briefing</h1>
-                </td>
-              </tr>
-              <tr>
-                <td align="center" style="padding-bottom:24px">
-                  <p style="font-family:Arial,sans-serif;font-size:14px;font-weight:600;color:#000;margin:0">{formatted_date}</p>
-                </td>
-              </tr>
-              <tr>
-                <td style="border-bottom:2px solid #000;padding-bottom:24px"></td>
-              </tr>
-              <tr>
-                <td align="center" style="padding:16px 0 8px">
-                  <p style="font-family:Arial,sans-serif;font-size:11px;color:#999;margin:0;letter-spacing:1px;text-transform:uppercase">Personal Performance Intelligence</p>
-                </td>
-              </tr>
-              <tr>
-                <td>
-                  <table width="100%" cellpadding="0" cellspacing="0">
-                    {sections_html}
-                  </table>
-                </td>
-              </tr>
-              <tr>
-                <td style="border-top:1px solid #e0e0e0;padding-top:24px;margin-top:40px">
-                  <p style="font-family:Arial,sans-serif;font-size:11px;color:#aaa;text-align:center;margin:0;line-height:1.8">
-                    Cortex — Personal Performance Intelligence<br>
-                    Generated daily from your Fitbit biometrics
-                  </p>
-                </td>
-              </tr>
-            </table>
-          </td>
-        </tr>
-      </table>
-    </body>
-    </html>
-    """
-
-import smtplib
-from email.message import EmailMessage
-
-def format_analysis_to_html(analysis):
-    sections = [
-        "Recovery Status",
-        "Training Recommendation",
-        "The Full Picture",
-        "Risk Flags",
-        "Action Items",
-    ]
-    present_sections = [s for s in sections if s in analysis]
     html_sections = ""
 
     for i, section in enumerate(present_sections):
@@ -784,53 +669,46 @@ def send_email(subject, analysis, briefing_date):
 # --- Run the pipeline ---
 
 def run_morning_pipeline():
-    today_str = datetime.now().strftime('%Y-%m-%d')
+    today_str     = datetime.now().strftime('%Y-%m-%d')
     yesterday_str = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
-    
-    auth = FitbitAuth()
+
+    auth   = FitbitAuth()
     client = FitbitClient(auth)
-    
-    # Fetching Data
+
+    # Fetch all metrics — activity from yesterday, recovery metrics from today
     print(f"Syncing {today_str}...")
     activity = client.fetch_activity(yesterday_str)
-    sleep = client.fetch_sleep(today_str)
-    hrv = client.fetch_hrv(today_str)
-    rhr = client.fetch_heart_rate(today_str)
-    
+    sleep    = client.fetch_sleep(today_str)
+    hrv      = client.fetch_hrv(today_str)
+    rhr      = client.fetch_heart_rate(today_str)
+    spo2     = client.fetch_spo2(today_str)
+    vo2max   = client.fetch_vo2max(today_str)
+
     combined_record = {
         "date": today_str,
-        **activity, **sleep, **hrv, **rhr
+        **activity, **sleep, **hrv, **rhr, **spo2, **vo2max
     }
 
-    # Pinecone Logic (Simplified for brevity)
-    from pinecone import Pinecone
-    pc = Pinecone(api_key=PINECONE_API_KEY)
-    index = pc.Index(INDEX_NAME)
-    
-    # Store today's data
-    # (Assume metrics_to_vector function exists from your previous code)
-    # index.upsert(...) 
+    # Pinecone — store today's record, then retrieve history
+    index = init_pinecone()
+    store_day(index, combined_record)
 
-    # 1. Fetch History for Averages
-    # We simulate the fetch here for the final logic bridge
-    ids = [(datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d') for i in range(1, 8)]
-    results = index.fetch(ids=ids)
-    
-    vectors = results.get("vectors", {})
-    hrv_vals = [v["metadata"].get("hrv_rmssd") for v in vectors.values() if v["metadata"].get("hrv_rmssd", -1) > 0]
-    rhr_vals = [v["metadata"].get("resting_heart_rate") for v in vectors.values() if v["metadata"].get("resting_heart_rate", -1) > 0]
+    # 7-day rolling averages for risk-flag thresholds
+    recent   = get_recent_days(index, n=7)
+    hrv_vals = [r.get("hrv_rmssd")         for r in recent if (r.get("hrv_rmssd")         or -1) > 0]
+    rhr_vals = [r.get("resting_heart_rate") for r in recent if (r.get("resting_heart_rate") or -1) > 0]
 
     avg_hrv = round(sum(hrv_vals) / len(hrv_vals), 1) if hrv_vals else "N/A"
     avg_rhr = round(sum(rhr_vals) / len(rhr_vals), 1) if rhr_vals else "N/A"
 
-    # 2. Generate Analysis with OPUS 4.6
-    session_info = f"{LAST_SESSION}: {SESSION_NOTES}"
-    history_text = "Rolling 7-day summary data provided."
-    
+    rolling_summary = get_rolling_summary(index)
+
+    # Generate analysis
+    session_info = f"{LAST_SESSION}: {SESSION_NOTES}" if LAST_SESSION else ""
     print("Calling Opus 4.6...")
-    analysis = get_analysis(combined_record, history_text, session_info, avg_hrv, avg_rhr)
-    
-    # 3. Deliver
+    analysis = get_analysis(combined_record, rolling_summary, session_info, avg_hrv, avg_rhr)
+
+    # Deliver
     print("Sending email...")
     send_email(f"Cortex — {today_str}", analysis, today_str)
     print("DONE.")
