@@ -43,7 +43,6 @@ EMAIL_PASSWORD       = os.environ["EMAIL_PASSWORD"]
 EMAIL_RECIPIENT      = os.environ["EMAIL_RECIPIENT"]
 
 
-
 # ─────────────────────────────────────────────────────────────
 # PART 1 — FITBIT AUTH
 # ─────────────────────────────────────────────────────────────
@@ -165,7 +164,7 @@ class FitbitAuth:
 
 
 # ─────────────────────────────────────────────────────────────
-# PART 1 — FITBIT DATA FETCHING
+# PART 2 — FITBIT DATA FETCHING
 # ─────────────────────────────────────────────────────────────
 
 class FitbitClient:
@@ -265,7 +264,7 @@ class FitbitClient:
 
 
 # ─────────────────────────────────────────────────────────────
-# PART 2 — PINECONE RAG
+# PART 3 — PINECONE STORAGE & RETRIEVAL
 # ─────────────────────────────────────────────────────────────
 
 METRIC_RANGES = {
@@ -346,7 +345,7 @@ def get_rolling_summary(index, n=7):
 
 
 # ─────────────────────────────────────────────────────────────
-# PART 3 — CLAUDE ANALYSIS
+# PART 4 — CLAUDE ANALYSIS
 # ─────────────────────────────────────────────────────────────
 
 USER_PROFILE = """
@@ -361,9 +360,8 @@ GOALS:
 - Long-term: Establish consistent HRV and RHR baselines in the healthy range
 
 TRAINING SCHEDULE:
-- 4 days/week lifting in this exact rotation: Legs, Back, Chest, Arms (1 hr each, hypertrophy rep ranges 8-12)
-- Based on yesterday's logged session, determine which muscle group is due today
-- Daily: 10,000 steps minimum regardless of training day
+- 4 days/week lifting: Legs, Back, Chest, Arms rotation (hypertrophy rep ranges 8-12)
+- Daily: 10,000 steps minimum
 - No full rest days — active recovery on non-lifting days
 
 LIFESTYLE CONTEXT:
@@ -387,26 +385,6 @@ BLOOD PRESSURE:
 - Key interventions: consistent Zone 2 cardio, stress management, sleep quality, HRV improvement
 - Flag any metrics that are working against BP goal
 """
-
-SYSTEM_PROMPT = """You are a personal fitness coach and sports science analyst with deep expertise in:
-- HRV interpretation and recovery science
-- Hypertrophy training programming
-- Blood pressure reduction through exercise
-- Sleep quality and its impact on performance
-- Interpreting Fitbit wearable data
-
-CORE ANALYTIC RULES:
-1. STEP DEFICIT: If yesterday's steps are under 10,000, you must prioritize movement in the Action Items.
-2. BP MANAGEMENT: If today's RHR is 5% or more above the 7-day average, you must recommend Zone 2 cardio for blood pressure management.
-3. RECOVERY MISMATCH: If Sleep is high but HRV is low, prioritize CNS fatigue in your 'Full Picture' analysis.
-
-STRICT FORMATING RULE: Always render physical metrics, times, and data points as digits (e.g., 72 ms, 6h 19m, 2,742 kcal). 
-Never write out numbers as words (e.g., do not write "seventy-two").
-
-You write in a direct, professional tone. No emojis. No fluff.
-Write in clear prose paragraphs, not bullet points, except for the Action Items section.
-Your analysis should read like it came from a highly informed human coach, not an AI chatbot.
-Do not use asterisks or any markdown formatting anywhere in your response. Write section headers as plain text only."""
 
 def build_prompt(today_metrics, rolling_summary, avg_hrv, avg_rhr):
     today = safe_dict(today_metrics)
@@ -486,7 +464,7 @@ def get_analysis(today_metrics, rolling_summary, avg_hrv, avg_rhr):
     return "Error: No text response generated."
 
 # ─────────────────────────────────────────────────────────────
-# PART 3 — EMAIL DELIVERY
+# PART 5 — EMAIL DELIVERY
 # ─────────────────────────────────────────────────────────────
 
 def format_analysis_to_html(analysis):
@@ -503,24 +481,11 @@ def format_analysis_to_html(analysis):
             end = analysis.index(present_sections[i + 1]) if i + 1 < len(present_sections) else len(analysis)
             content = analysis[start:end].strip().replace("**", "").strip()
 
-            if section == "Action Items":
-                items = re.findall(r'\d+\.?\s+(.+?)(?=\d+\.|$)', content, re.DOTALL)
-                items = [item.strip() for item in items if item.strip()]
-                if items:
-                    list_html = "".join([
-                        f'<tr><td style="padding:10px 0;border-bottom:1px solid #f0f0f0;font-size:15px;color:#1a1a1a;line-height:1.6">'
-                        f'<span style="font-weight:600;margin-right:8px;color:#000">{j+1}.</span>{item}</td></tr>'
-                        for j, item in enumerate(items)
-                    ])
-                    content_html = f'<table style="width:100%;border-collapse:collapse">{list_html}</table>'
-                else:
-                    content_html = f'<p style="font-size:15px;color:#1a1a1a;line-height:1.8;margin:0">{content}</p>'
-            else:
-                paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
-                content_html = "".join([
-                    f'<p style="font-size:15px;color:#1a1a1a;line-height:1.8;margin:0 0 12px">{p}</p>'
-                    for p in paragraphs
-                ])
+            paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
+            content_html = "".join([
+                f'<p style="font-size:15px;color:#1a1a1a;line-height:1.8;margin:0 0 12px">{p}</p>'
+                for p in paragraphs
+            ])
 
             html_sections += f"""
             <tr>
@@ -603,10 +568,6 @@ def build_email_html(analysis, briefing_date):
     """
 
 def send_email(subject, analysis, briefing_date):
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
-    import smtplib
-
     # 1. Prepare the Multi-Part Message (Text + HTML)
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
