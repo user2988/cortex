@@ -227,10 +227,13 @@ class FitbitClient:
         data    = self._get(f"/1/user/-/activities/date/{d}.json")
         summary = data.get("summary", {})
         hr_zones = {z["name"]: z["minutes"] for z in summary.get("heartRateZones", [])}
+        azm_raw  = summary.get("activeZoneMinutes")
+        print(f"  [debug] activeZoneMinutes raw: {azm_raw}")
+        print(f"  [debug] heartRateZones raw: {summary.get('heartRateZones')}")
         return {
             "steps":                   summary.get("steps"),
             "calories_out":            summary.get("caloriesOut"),
-            "active_zone_minutes":     summary.get("activeZoneMinutes", {}).get("totalMinutes"),
+            "active_zone_minutes":     azm_raw.get("totalMinutes") if isinstance(azm_raw, dict) else azm_raw,
             "very_active_minutes":     summary.get("veryActiveMinutes"),
             "fairly_active_minutes":   summary.get("fairlyActiveMinutes"),
             "sedentary_minutes":       summary.get("sedentaryMinutes"),
