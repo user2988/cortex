@@ -50,7 +50,7 @@ EMAIL_RECIPIENT      = os.environ["EMAIL_RECIPIENT"]
 class FitbitAuth:
     AUTH_URL  = "https://www.fitbit.com/oauth2/authorize"
     TOKEN_URL = "https://api.fitbit.com/oauth2/token"
-    SCOPES    = "sleep heartrate activity oxygen_saturation cardio_fitness profile"
+    SCOPES    = "sleep heartrate activity oxygen_saturation cardio_fitness respiratory_rate profile"
 
     def __init__(self):
         self.tokens = self._load_tokens()
@@ -228,8 +228,6 @@ class FitbitClient:
         summary = data.get("summary", {})
         hr_zones = {z["name"]: z["minutes"] for z in summary.get("heartRateZones", [])}
         azm_raw  = summary.get("activeZoneMinutes")
-        print(f"  [debug] activeZoneMinutes raw: {azm_raw}")
-        print(f"  [debug] heartRateZones raw: {summary.get('heartRateZones')}")
         return {
             "steps":                   summary.get("steps"),
             "calories_out":            summary.get("caloriesOut"),
