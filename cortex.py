@@ -264,7 +264,67 @@ class FitbitClient:
 
 
 # ─────────────────────────────────────────────────────────────
-# PART 3 — PINECONE STORAGE & RETRIEVAL
+# PART 3 — POSTGRESQL STORAGE
+# ─────────────────────────────────────────────────────────────
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+def store_biometrics(record):
+    if not DATABASE_URL:
+        print("DATABASE_URL not set — skipping Postgres write.")
+        return
+
+    import psycopg2
+
+    sql = """
+        INSERT INTO biometrics (
+            date,
+            sleep_duration_min, sleep_efficiency_pct,
+            deep_sleep_min, rem_sleep_min, light_sleep_min, awake_min, time_in_bed_min,
+            hrv_ms, rhr_bpm, spo2_avg_pct,
+            steps, active_zone_min, very_active_min, fairly_active_min,
+            sedentary_min, calories_burned, distance_km, vo2_max
+        ) VALUES (
+            %(date)s,
+            %(sleep_minutes)s, %(sleep_score)s,
+            %(stage_deep)s, %(stage_rem)s, %(stage_light)s, %(stage_wake)s, %(time_in_bed)s,
+            %(hrv_rmssd)s, %(resting_heart_rate)s, %(spo2_avg)s,
+            %(steps)s, %(active_zone_minutes)s, %(very_active_minutes)s, %(fairly_active_minutes)s,
+            %(sedentary_minutes)s, %(calories_out)s, %(distance_km)s, %(vo2_max)s
+        )
+        ON CONFLICT (date) DO UPDATE SET
+            sleep_duration_min   = EXCLUDED.sleep_duration_min,
+            sleep_efficiency_pct = EXCLUDED.sleep_efficiency_pct,
+            deep_sleep_min       = EXCLUDED.deep_sleep_min,
+            rem_sleep_min        = EXCLUDED.rem_sleep_min,
+            light_sleep_min      = EXCLUDED.light_sleep_min,
+            awake_min            = EXCLUDED.awake_min,
+            time_in_bed_min      = EXCLUDED.time_in_bed_min,
+            hrv_ms               = EXCLUDED.hrv_ms,
+            rhr_bpm              = EXCLUDED.rhr_bpm,
+            spo2_avg_pct         = EXCLUDED.spo2_avg_pct,
+            steps                = EXCLUDED.steps,
+            active_zone_min      = EXCLUDED.active_zone_min,
+            very_active_min      = EXCLUDED.very_active_min,
+            fairly_active_min    = EXCLUDED.fairly_active_min,
+            sedentary_min        = EXCLUDED.sedentary_min,
+            calories_burned      = EXCLUDED.calories_burned,
+            distance_km          = EXCLUDED.distance_km,
+            vo2_max              = EXCLUDED.vo2_max;
+    """
+
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, record)
+        print(f"Stored {record['date']} in PostgreSQL.")
+    finally:
+        conn.close()
+
+
+# ─────────────────────────────────────────────────────────────
+# PART 4 — PINECONE STORAGE & RETRIEVAL
 # ─────────────────────────────────────────────────────────────
 
 METRIC_RANGES = {
@@ -620,6 +680,9 @@ def run_morning_pipeline():
         "date": today_str,
         **activity, **sleep, **hrv, **rhr, **spo2, **vo2max
     }
+
+    # PostgreSQL — store biometrics
+    store_biometrics(combined_record)
 
     # Pinecone — store today's record, then retrieve history
     index = init_pinecone()
