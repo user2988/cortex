@@ -212,6 +212,7 @@ class FitbitClient:
 
     def fetch_spo2(self, d):
         data  = self._get(f"/1/user/-/spo2/date/{d}.json")
+        print(f"  [debug] spo2 raw response: {data}")
         value = data.get("value", {})
         return {
             "spo2_avg": value.get("avg"),
