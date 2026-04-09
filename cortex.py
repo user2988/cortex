@@ -317,7 +317,27 @@ def store_biometrics(record):
     try:
         with conn:
             with conn.cursor() as cur:
-                cur.execute(sql, record)
+                cur.execute(sql, {
+                    "date":                 record.get("date"),
+                    "sleep_minutes":        record.get("sleep_minutes"),
+                    "sleep_score":          record.get("sleep_score"),
+                    "stage_deep":           record.get("stage_deep"),
+                    "stage_rem":            record.get("stage_rem"),
+                    "stage_light":          record.get("stage_light"),
+                    "stage_wake":           record.get("stage_wake"),
+                    "time_in_bed":          record.get("time_in_bed"),
+                    "hrv_rmssd":            record.get("hrv_rmssd"),
+                    "resting_heart_rate":   record.get("resting_heart_rate"),
+                    "spo2_avg":             record.get("spo2_avg"),
+                    "steps":                record.get("steps"),
+                    "active_zone_minutes":  record.get("active_zone_minutes"),
+                    "very_active_minutes":  record.get("very_active_minutes"),
+                    "fairly_active_minutes":record.get("fairly_active_minutes"),
+                    "sedentary_minutes":    record.get("sedentary_minutes"),
+                    "calories_out":         record.get("calories_out"),
+                    "distance_km":          record.get("distance_km"),
+                    "vo2_max":              record.get("vo2_max"),
+                })
         print(f"Stored {record['date']} in PostgreSQL.")
     finally:
         conn.close()
