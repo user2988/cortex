@@ -17,11 +17,15 @@ CREATE TABLE IF NOT EXISTS biometrics (
     light_sleep_min         INTEGER,
     awake_min               INTEGER,
     time_in_bed_min         INTEGER,
+    sleep_onset_latency_min INTEGER,
+    bedtime_consistency_sd  NUMERIC(6, 2),
 
     -- Recovery
     hrv_ms                  NUMERIC(6, 2),
     rhr_bpm                 INTEGER,
     spo2_avg_pct            NUMERIC(5, 2),
+    spo2_min_pct            NUMERIC(5, 2),
+    respiratory_rate        NUMERIC(5, 2),
 
     -- Activity (yesterday)
     steps                   INTEGER,
@@ -32,6 +36,10 @@ CREATE TABLE IF NOT EXISTS biometrics (
     calories_burned         INTEGER,
     distance_km             NUMERIC(6, 3),
     vo2_max                 NUMERIC(5, 2),
+    hr_recovery_bpm         INTEGER,
+    time_in_fat_burn_min    INTEGER,
+    time_in_cardio_min      INTEGER,
+    time_in_peak_min        INTEGER,
 
     created_at              TIMESTAMPTZ DEFAULT NOW()
 );
