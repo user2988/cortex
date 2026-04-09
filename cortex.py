@@ -165,7 +165,8 @@ class FitbitClient:
         return {
             "sleep_minutes":           summary.get("totalMinutesAsleep"),
             "time_in_bed":             summary.get("totalTimeInBed"),
-            "sleep_score":             main.get("efficiency"),
+            "sleep_score":             main.get("score"),
+            "sleep_efficiency":        main.get("efficiency"),
             "stage_deep":              stages.get("deep"),
             "stage_rem":               stages.get("rem"),
             "stage_light":             stages.get("light"),
@@ -242,7 +243,7 @@ def store_biometrics(record):
     sql = """
         INSERT INTO biometrics (
             date,
-            sleep_duration_min, sleep_efficiency_pct,
+            sleep_duration_min, sleep_efficiency_pct, sleep_score,
             deep_sleep_min, rem_sleep_min, light_sleep_min, awake_min,
             time_in_bed_min, sleep_onset_latency_min,
             hrv_ms, rhr_bpm, spo2_avg_pct, spo2_min_pct, respiratory_rate,
@@ -251,7 +252,7 @@ def store_biometrics(record):
             time_in_fat_burn_min, time_in_cardio_min, time_in_peak_min
         ) VALUES (
             %(date)s,
-            %(sleep_minutes)s, %(sleep_score)s,
+            %(sleep_minutes)s, %(sleep_efficiency)s, %(sleep_score)s,
             %(stage_deep)s, %(stage_rem)s, %(stage_light)s, %(stage_wake)s,
             %(time_in_bed)s, %(sleep_onset_latency_min)s,
             %(hrv_rmssd)s, %(resting_heart_rate)s, %(spo2_avg)s, %(spo2_min)s, %(respiratory_rate)s,
@@ -262,6 +263,7 @@ def store_biometrics(record):
         ON CONFLICT (date) DO UPDATE SET
             sleep_duration_min      = EXCLUDED.sleep_duration_min,
             sleep_efficiency_pct    = EXCLUDED.sleep_efficiency_pct,
+            sleep_score             = EXCLUDED.sleep_score,
             deep_sleep_min          = EXCLUDED.deep_sleep_min,
             rem_sleep_min           = EXCLUDED.rem_sleep_min,
             light_sleep_min         = EXCLUDED.light_sleep_min,
@@ -292,6 +294,7 @@ def store_biometrics(record):
                 cur.execute(sql, {
                     "date":                     record.get("date"),
                     "sleep_minutes":            record.get("sleep_minutes"),
+                    "sleep_efficiency":         record.get("sleep_efficiency"),
                     "sleep_score":              record.get("sleep_score"),
                     "stage_deep":               record.get("stage_deep"),
                     "stage_rem":                record.get("stage_rem"),
