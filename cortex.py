@@ -244,7 +244,17 @@ class FitbitClient:
     def fetch_vo2max(self, d):
         data  = self._get(f"/1/user/-/cardioscore/date/{d}.json")
         score = data.get("cardioScore", [])
-        return {"vo2_max": score[0]["value"].get("vo2Max") if score else None}
+        if not score:
+            return {"vo2_max": None}
+        raw = score[0]["value"].get("vo2Max")
+        if raw is None:
+            return {"vo2_max": None}
+        # Fitbit returns a range (e.g. "46-50") before a GPS run establishes
+        # a precise value — store the midpoint until then
+        if isinstance(raw, str) and "-" in raw:
+            lo, hi = raw.split("-")
+            return {"vo2_max": (float(lo) + float(hi)) / 2}
+        return {"vo2_max": float(raw)}
 
     def fetch_day(self, target_date=None):
         if target_date is None:
