@@ -676,8 +676,10 @@ def run_morning_pipeline():
     spo2     = client.fetch_spo2(today_str)
     vo2max   = client.fetch_vo2max(today_str)
 
+    # Record is keyed to the activity date (yesterday).
+    # Sleep/HRV/RHR/SpO2 are from the following night — the 1-day lag recovery window.
     combined_record = {
-        "date": today_str,
+        "date": yesterday_str,
         **activity, **sleep, **hrv, **rhr, **spo2, **vo2max
     }
 
@@ -704,7 +706,7 @@ def run_morning_pipeline():
 
     # Deliver
     print("Sending email...")
-    send_email(f"Cortex — {today_str}", analysis, today_str)
+    send_email(f"Cortex — {yesterday_str}", analysis, yesterday_str)
     print("DONE.")
 
 if __name__ == "__main__":
