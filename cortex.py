@@ -717,11 +717,15 @@ def run_morning_pipeline():
     store_biometrics(combined_record)
 
     # Pinecone — store today's record, then retrieve history
-    index = init_pinecone()
-    store_day(index, combined_record)
-
-    # 7-day rolling averages for risk-flag thresholds
-    recent   = get_recent_days(index, n=7)
+    # Wrapped in try/except: Pinecone is deprecated in v2 and index may have stale config
+    try:
+        index  = init_pinecone()
+        store_day(index, combined_record)
+        recent = get_recent_days(index, n=7)
+    except Exception as e:
+        print(f"Pinecone unavailable ({e}) — skipping vector store and history retrieval.")
+        index  = None
+        recent = []
     hrv_vals = [r.get("hrv_rmssd")         for r in recent if (r.get("hrv_rmssd")         or -1) > 0]
     rhr_vals = [r.get("resting_heart_rate") for r in recent if (r.get("resting_heart_rate") or -1) > 0]
 
