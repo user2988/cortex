@@ -732,7 +732,7 @@ def run_morning_pipeline():
     avg_hrv = round(sum(hrv_vals) / len(hrv_vals), 1) if hrv_vals else "N/A"
     avg_rhr = round(sum(rhr_vals) / len(rhr_vals), 1) if rhr_vals else "N/A"
 
-    rolling_summary = get_rolling_summary(index)
+    rolling_summary = get_rolling_summary(index) if index else "No historical data available yet."
 
     # Generate analysis
     print("Calling Opus 4.6...")
