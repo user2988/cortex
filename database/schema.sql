@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS biometrics (
     -- Sleep
     sleep_duration_min      INTEGER,
     sleep_efficiency_pct    INTEGER,
+    sleep_score             INTEGER,
     deep_sleep_min          INTEGER,
     rem_sleep_min           INTEGER,
     light_sleep_min         INTEGER,
