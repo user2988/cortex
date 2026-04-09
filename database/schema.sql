@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS nutrition (
     water_ml                NUMERIC(8, 2),
 
     -- Stimulants / sleep impactors
+    -- NOTE v3: alcohol and caffeine will migrate to a supplements/lifestyle table
+    -- once the built-in logger replaces Cronometer
     alcohol_units           NUMERIC(5, 2),
     caffeine_mg             NUMERIC(8, 2),
 
@@ -78,7 +80,8 @@ CREATE TABLE IF NOT EXISTS nutrition (
 -- Weight — one row per week, logged manually every Monday morning
 CREATE TABLE IF NOT EXISTS weight (
     date                    DATE PRIMARY KEY,
-    weight_kg               NUMERIC(5, 2) NOT NULL,
+    weight_value            NUMERIC(5, 2) NOT NULL,
+    weight_unit             CHAR(3)       NOT NULL DEFAULT 'kg' CHECK (weight_unit IN ('kg', 'lbs')),
 
     created_at              TIMESTAMPTZ DEFAULT NOW()
 );
