@@ -15,18 +15,13 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install dependencies
-        run: pip install requests anthropic pinecone numpy python-dotenv psycopg2-binary
+        run: pip install requests psycopg2-binary
       - name: Restore Fitbit tokens
         run: echo '${{ secrets.FITBIT_TOKENS }}' > fitbit_tokens.json
       - name: Run Cortex pipeline
         env:
           FITBIT_CLIENT_ID:     ${{ secrets.FITBIT_CLIENT_ID }}
           FITBIT_CLIENT_SECRET: ${{ secrets.FITBIT_CLIENT_SECRET }}
-          PINECONE_API_KEY:     ${{ secrets.PINECONE_API_KEY }}
-          ANTHROPIC_API_KEY:    ${{ secrets.ANTHROPIC_API_KEY }}
-          EMAIL_SENDER:         ${{ secrets.EMAIL_SENDER }}
-          EMAIL_PASSWORD:       ${{ secrets.EMAIL_PASSWORD }}
-          EMAIL_RECIPIENT:      ${{ secrets.EMAIL_RECIPIENT }}
           DATABASE_URL:         ${{ secrets.DATABASE_URL }}
         run: python cortex.py
       - name: Save updated Fitbit tokens
