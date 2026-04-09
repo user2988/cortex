@@ -42,9 +42,6 @@ EMAIL_SENDER         = os.environ["EMAIL_SENDER"]
 EMAIL_PASSWORD       = os.environ["EMAIL_PASSWORD"]
 EMAIL_RECIPIENT      = os.environ["EMAIL_RECIPIENT"]
 
-# Workout context — passed in via GitHub Actions input or environment variable
-LAST_SESSION         = os.environ.get("LAST_SESSION", "")
-SESSION_NOTES        = os.environ.get("SESSION_NOTES", "")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -411,12 +408,8 @@ Write in clear prose paragraphs, not bullet points, except for the Action Items 
 Your analysis should read like it came from a highly informed human coach, not an AI chatbot.
 Do not use asterisks or any markdown formatting anywhere in your response. Write section headers as plain text only."""
 
-def build_prompt(today_metrics, rolling_summary, workout_context, avg_hrv, avg_rhr):
-    # Ensure we have clean data for the string formatting
+def build_prompt(today_metrics, rolling_summary, avg_hrv, avg_rhr):
     today = safe_dict(today_metrics)
-    
-    # Calculate the 5% RHR threshold for the Action Item logic
-    rhr_threshold = round(float(avg_rhr) * 1.05, 1) if avg_rhr != "N/A" else "N/A"
 
     return f"""
 {USER_PROFILE}
@@ -424,10 +417,6 @@ def build_prompt(today_metrics, rolling_summary, workout_context, avg_hrv, avg_r
 7-DAY BASELINES (REFERENCE):
 - Average HRV: {avg_hrv} ms
 - Average Resting Heart Rate: {avg_rhr} bpm
-- RHR +5% Threshold: {rhr_threshold} bpm
-
-YESTERDAY'S TRAINING:
-{workout_context if workout_context else "No session logged."}
 
 TODAY'S METRICS ({today.get('date')}):
 - Sleep: {today.get('sleep_minutes', 'N/A')} min | Efficiency: {today.get('sleep_score', 'N/A')}%
@@ -444,19 +433,13 @@ TODAY'S METRICS ({today.get('date')}):
 ROLLING HISTORY:
 {rolling_summary}
 
-Write my morning briefing with the following sections in this exact order. Only include sections marked as active for today.
+Write my morning briefing with the following sections in this exact order.
 
-Recovery Status — ALWAYS INCLUDE
-Rate recovery as Excellent, Good, Moderate, or Poor. One sentence on the rating, then 2 sentences explaining why in plain terms. Use the numbers but make them mean something.
-
-Training Recommendation — ALWAYS INCLUDE
-Should I train hard, train light, or recover today? Which muscle group is due based on yesterday's logged session. Keep it practical and specific — what to do, how hard to push, and why. One short paragraph. No jargon.
-
-The Full Picture — ALWAYS INCLUDE
-This is the connective tissue of the briefing. Write one flowing paragraph that ties together what happened last night, how it connects to recent trends, and what it means for the goals — muscle building, cardiovascular health, and blood pressure. Use the data to tell a story, not list observations. A 20-year-old should read this and immediately understand what is going on with their body and why it matters. Always include a specific note on blood pressure progress. Keep it conversational but intelligent. No bullet points.
+Recovery & Activity Summary — ALWAYS INCLUDE
+Rate recovery as Excellent, Good, Moderate, or Poor in the opening sentence. Then write one flowing paragraph that covers yesterday's activity and last night's recovery together — what the data shows, how it connects to recent trends, and what it means for the goals (cardiovascular health and blood pressure). Use the numbers but make them mean something. Clear and direct, not a list of observations.
 
 Risk Flags — CONDITIONAL
-Before writing any other section, silently check every threshold below against today's exact metrics. If ANY single condition is met, you MUST include this section. Do not interpret or use judgment — these are hard rules.
+Silently check every threshold below against today's exact metrics. If ANY single condition is met, you MUST include this section. Do not use judgment — these are hard rules.
 
 Individual thresholds:
 - Sleep was under 300 minutes (5 hours) → MUST flag
@@ -471,35 +454,26 @@ Multi-metric flag — flag if 3 or more of the following are simultaneously true
 - Sleep under 5.5 hours (330 minutes)
 - SpO2 below 94%
 
-If triggered, write one concise paragraph explaining what the data is showing and why it matters today. If zero conditions are met, do not include this section at all — not even a heading.
+If triggered, write one concise paragraph explaining what the data is showing and why it matters. If zero conditions are met, do not include this section at all — not even a heading.
 
-Action Items — ALWAYS INCLUDE
-Exactly 4 specific things I should do today. Numbered list. No emojis. Terse and direct. 
-
-LOGIC FOR THIS SECTION:
-- If steps < 10,000, Item #1 must be a specific time to walk today.
-- If RHR is elevated >5% vs History (Today: {today.get('resting_heart_rate')} vs Avg: {avg_rhr}), Item #2 must be a 20-min Zone 2 session for BP.
-- Always include one item for cardiovascular health.
-- If data is 'N/A', provide high-quality general coaching based on the goals.
-
-TONE: Write like a knowledgeable coach who has access to your biometric data. Smart and data-informed, but clear and direct. Never sacrifice clarity for technical precision. No emojis. No markdown bold. Prose only except Action Items.
+TONE: Data-informed and direct. No emojis. No markdown bold. Prose only. Write like a knowledgeable analyst reading the numbers, not a coach giving orders.
 """
 
 def safe_dict(data):
     return data if isinstance(data, dict) else {}
 
-def get_analysis(today_metrics, rolling_summary, workout_context, avg_hrv, avg_rhr):
+def get_analysis(today_metrics, rolling_summary, avg_hrv, avg_rhr):
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     message = client.messages.create(
-        model="claude-opus-4-6", 
-        max_tokens=4096, # 4.6 needs room for both thinking and the response
-        thinking={"type": "adaptive"}, # Switched back to adaptive per the SDK warning
-        system="You are an elite performance coach (Cortex). Write in prose. No emojis.",
+        model="claude-opus-4-6",
+        max_tokens=4096,
+        thinking={"type": "adaptive"},
+        system="You are Cortex, a personal biometric intelligence system. Write in prose. No emojis.",
         messages=[
             {
-                "role": "user", 
-                "content": build_prompt(today_metrics, rolling_summary, workout_context, avg_hrv, avg_rhr)
+                "role": "user",
+                "content": build_prompt(today_metrics, rolling_summary, avg_hrv, avg_rhr)
             }
         ]
     )
@@ -517,11 +491,8 @@ def get_analysis(today_metrics, rolling_summary, workout_context, avg_hrv, avg_r
 
 def format_analysis_to_html(analysis):
     sections = [
-        "Recovery Status",
-        "Training Recommendation",
-        "The Full Picture",
+        "Recovery & Activity Summary",
         "Risk Flags",
-        "Action Items",
     ]
     present_sections = [s for s in sections if s in analysis]
     html_sections = ""
@@ -704,9 +675,8 @@ def run_morning_pipeline():
     rolling_summary = get_rolling_summary(index)
 
     # Generate analysis
-    session_info = f"{LAST_SESSION}: {SESSION_NOTES}" if LAST_SESSION else ""
     print("Calling Opus 4.6...")
-    analysis = get_analysis(combined_record, rolling_summary, session_info, avg_hrv, avg_rhr)
+    analysis = get_analysis(combined_record, rolling_summary, avg_hrv, avg_rhr)
 
     # Deliver
     print("Sending email...")
