@@ -1,8 +1,8 @@
 name: Cortex Morning Briefing
 on:
   schedule:
-    - cron: '30 12 * * *'  # 8:30am EDT (UTC-4, Mar–Nov)
-    # - cron: '30 13 * * *'  # 8:30am EST (UTC-5, Nov–Mar)
+    - cron: '0 15 * * *'   # 11:00am EDT (UTC-4, Mar–Nov)
+    # - cron: '0 16 * * *'   # 11:00am EST (UTC-5, Nov–Mar)
   workflow_dispatch:
 jobs:
   run-Cortex:

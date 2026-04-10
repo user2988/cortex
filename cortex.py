@@ -1,7 +1,7 @@
 """
 Cortex — Biometric Data Pipeline
 Fetches Fitbit metrics daily and writes them to PostgreSQL.
-Runs automatically via GitHub Actions at 8:30am EST.
+Runs automatically via GitHub Actions at 11:00am EST.
 """
 
 import os
