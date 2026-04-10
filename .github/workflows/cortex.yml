@@ -1,4 +1,4 @@
-name: Cortex Morning Briefing
+name: Cortex Daily Pipeline
 on:
   schedule:
     - cron: '0 15 * * *'   # 11:00am EDT (UTC-4, Mar–Nov)
@@ -23,6 +23,8 @@ jobs:
           FITBIT_CLIENT_ID:     ${{ secrets.FITBIT_CLIENT_ID }}
           FITBIT_CLIENT_SECRET: ${{ secrets.FITBIT_CLIENT_SECRET }}
           DATABASE_URL:         ${{ secrets.DATABASE_URL }}
+          CRONOMETER_EMAIL:     ${{ secrets.CRONOMETER_EMAIL }}
+          CRONOMETER_PASSWORD:  ${{ secrets.CRONOMETER_PASSWORD }}
         run: python cortex.py
       - name: Save updated Fitbit tokens
         if: always()
