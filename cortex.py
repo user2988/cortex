@@ -357,7 +357,7 @@ def run_pipeline():
     # Sleep/recovery from today — Fitbit keys overnight data to wake-up date
     activity    = safe_fetch("activity",       client.fetch_activity,       yesterday_str)
     sleep       = safe_fetch("sleep",          client.fetch_sleep,          today_str)
-    sleep_score = safe_fetch("sleep_score",    client.fetch_sleep_score,    today_str)
+    sleep_score = safe_fetch("sleep_score",    client.fetch_sleep_score,    yesterday_str)
     hrv         = safe_fetch("hrv",            client.fetch_hrv,            today_str)
     rhr      = safe_fetch("rhr",            client.fetch_heart_rate,     today_str)
     spo2     = safe_fetch("spo2",           client.fetch_spo2,           today_str)
