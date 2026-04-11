@@ -156,7 +156,11 @@ class FitbitClient:
             print(f"Rate limited — waiting {wait}s...")
             time.sleep(wait)
             return self._get(path)
-        r.raise_for_status()
+        if not r.ok:
+            raise requests.HTTPError(
+                f"{r.status_code} {r.reason} for url: {r.url}\nBody: {r.text}",
+                response=r,
+            )
         return r.json()
 
     def fetch_sleep(self, d):
