@@ -180,14 +180,22 @@ class FitbitClient:
         # fall back to the previous date on 404 or empty response.
         prev = (date.fromisoformat(d) - timedelta(days=1)).isoformat()
         for d_ in (d, prev):
-            try:
-                data    = self._get(f"/1/user/-/sleep/score/date/{d_}.json")
-                entries = data if isinstance(data, list) else [data]
-                if entries:
-                    return {"sleep_score": entries[0].get("value")}
-            except requests.exceptions.HTTPError as e:
-                if "404" not in str(e):
-                    raise
+            r = requests.get(
+                f"{self.BASE}/1/user/-/sleep/score/date/{d_}.json",
+                headers=self.auth.get_headers(),
+            )
+            if r.status_code == 429:
+                wait = int(r.headers.get("Retry-After", 60))
+                print(f"Rate limited — waiting {wait}s...")
+                time.sleep(wait)
+                return self.fetch_sleep_score(d)
+            if r.status_code == 404:
+                continue
+            r.raise_for_status()
+            data    = r.json()
+            entries = data if isinstance(data, list) else [data]
+            if entries:
+                return {"sleep_score": entries[0].get("value")}
         return {"sleep_score": None}
 
     def fetch_heart_rate(self, d):
