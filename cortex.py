@@ -168,6 +168,7 @@ class FitbitClient:
         summary = data.get("summary", {})
         stages  = summary.get("stages", {})
         main    = data.get("sleep", [{}])[0]
+        print(f"    [debug] sleep main keys: {list(main.keys())}")
         return {
             "sleep_minutes":           summary.get("totalMinutesAsleep"),
             "time_in_bed":             summary.get("totalTimeInBed"),
