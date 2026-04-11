@@ -186,7 +186,7 @@ class FitbitClient:
                 if entries:
                     return {"sleep_score": entries[0].get("value")}
             except requests.exceptions.HTTPError as e:
-                if e.response.status_code != 404:
+                if "404" not in str(e):
                     raise
         return {"sleep_score": None}
 
