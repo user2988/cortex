@@ -176,15 +176,19 @@ class FitbitClient:
         }
 
     def fetch_sleep_score(self, d):
-        data    = self._get(f"/1/user/-/sleep/score/date/{d}.json")
-        # Response: [{"dateTime": "YYYY-MM-DD", "value": N}]
-        entries = data if isinstance(data, list) else [data]
-        # Fall back to previous date — Fitbit sometimes keys sleep score to sleep-start date
-        if not entries:
-            prev    = (date.fromisoformat(d) - timedelta(days=1)).isoformat()
-            data    = self._get(f"/1/user/-/sleep/score/date/{prev}.json")
-            entries = data if isinstance(data, list) else [data]
-        return {"sleep_score": entries[0].get("value") if entries else None}
+        # Fitbit sometimes keys sleep score to sleep-start date rather than wake-up date;
+        # fall back to the previous date on 404 or empty response.
+        prev = (date.fromisoformat(d) - timedelta(days=1)).isoformat()
+        for d_ in (d, prev):
+            try:
+                data    = self._get(f"/1/user/-/sleep/score/date/{d_}.json")
+                entries = data if isinstance(data, list) else [data]
+                if entries:
+                    return {"sleep_score": entries[0].get("value")}
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code != 404:
+                    raise
+        return {"sleep_score": None}
 
     def fetch_heart_rate(self, d):
         data  = self._get(f"/1/user/-/activities/heart/date/{d}/1d.json")
