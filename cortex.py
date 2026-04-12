@@ -40,7 +40,7 @@ DATABASE_URL         = os.environ["DATABASE_URL"]
 class FitbitAuth:
     AUTH_URL  = "https://www.fitbit.com/oauth2/authorize"
     TOKEN_URL = "https://api.fitbit.com/oauth2/token"
-    SCOPES    = "sleep heartrate activity oxygen_saturation cardio_fitness respiratory_rate temperature profile"
+    SCOPES    = "sleep heartrate activity oxygen_saturation cardio_fitness respiratory_rate profile"
 
     def __init__(self):
         self.tokens = self._load_tokens()
@@ -259,12 +259,6 @@ class FitbitClient:
             return {"active_zone_minutes": None}
         return {"active_zone_minutes": entries[0].get("value", {}).get("activeZoneMinutes")}
 
-    def fetch_skin_temp(self, d):
-        data    = self._get(f"/1/user/-/temp/skin/date/{d}.json")
-        entries = data.get("tempSkin", [])
-        if not entries:
-            return {"skin_temp_relative": None}
-        return {"skin_temp_relative": entries[0].get("value", {}).get("nightlyRelative")}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -280,7 +274,6 @@ def store_biometrics(record):
             time_in_bed_min, sleep_onset_latency_min,
             hrv_ms, hrv_deep_rmssd, rhr_bpm,
             spo2_avg_pct, spo2_min_pct, spo2_max_pct, respiratory_rate,
-            skin_temp_relative,
             steps, active_zone_min, very_active_min, fairly_active_min, lightly_active_min,
             sedentary_min, calories_burned, distance_km, vo2_max,
             time_in_fat_burn_min, time_in_cardio_min, time_in_peak_min
@@ -291,7 +284,6 @@ def store_biometrics(record):
             %(time_in_bed)s, %(sleep_onset_latency_min)s,
             %(hrv_rmssd)s, %(hrv_deep_rmssd)s, %(resting_heart_rate)s,
             %(spo2_avg)s, %(spo2_min)s, %(spo2_max)s, %(respiratory_rate)s,
-            %(skin_temp_relative)s,
             %(steps)s, %(active_zone_minutes)s, %(very_active_minutes)s, %(fairly_active_minutes)s, %(lightly_active_minutes)s,
             %(sedentary_minutes)s, %(calories_out)s, %(distance_km)s, %(vo2_max)s,
             %(time_in_fat_burn_min)s, %(time_in_cardio_min)s, %(time_in_peak_min)s
@@ -312,7 +304,6 @@ def store_biometrics(record):
             spo2_min_pct            = EXCLUDED.spo2_min_pct,
             spo2_max_pct            = EXCLUDED.spo2_max_pct,
             respiratory_rate        = EXCLUDED.respiratory_rate,
-            skin_temp_relative      = EXCLUDED.skin_temp_relative,
             steps                   = EXCLUDED.steps,
             active_zone_min         = EXCLUDED.active_zone_min,
             very_active_min         = EXCLUDED.very_active_min,
@@ -347,7 +338,6 @@ def store_biometrics(record):
                     "spo2_min":                record.get("spo2_min"),
                     "spo2_max":                record.get("spo2_max"),
                     "respiratory_rate":        record.get("respiratory_rate"),
-                    "skin_temp_relative":      record.get("skin_temp_relative"),
                     "steps":                   record.get("steps"),
                     "active_zone_minutes":     record.get("active_zone_minutes"),
                     "very_active_minutes":     record.get("very_active_minutes"),
@@ -399,12 +389,10 @@ def run_pipeline():
     spo2      = safe_fetch("spo2",           client.fetch_spo2,           today_str)
     br        = safe_fetch("breathing_rate", client.fetch_breathing_rate, today_str)
     vo2max    = safe_fetch("vo2max",         client.fetch_vo2max,         today_str)
-    skin_temp = safe_fetch("skin_temp",      client.fetch_skin_temp,      today_str)
-
     # Record keyed to activity date — sleep/recovery is for the overnight period ending today
     record = {
         "date": yesterday_str,
-        **activity, **azm, **hr_zones, **sleep, **hrv, **rhr, **spo2, **br, **vo2max, **skin_temp
+        **activity, **azm, **hr_zones, **sleep, **hrv, **rhr, **spo2, **br, **vo2max
     }
 
     store_biometrics(record)
