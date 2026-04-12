@@ -177,7 +177,6 @@ class FitbitClient:
             "stage_rem":               stages.get("rem"),
             "stage_light":             stages.get("light"),
             "stage_wake":              stages.get("wake"),
-            "sleep_onset_latency_min": main.get("minutesToFallAsleep"),
         }
 
     def fetch_heart_rate(self, d):
@@ -271,7 +270,7 @@ def store_biometrics(record):
             date,
             sleep_duration_min, sleep_efficiency_pct,
             deep_sleep_min, rem_sleep_min, light_sleep_min, awake_min,
-            time_in_bed_min, sleep_onset_latency_min,
+            time_in_bed_min,
             hrv_ms, hrv_deep_rmssd, rhr_bpm,
             spo2_avg_pct, spo2_min_pct, spo2_max_pct, respiratory_rate,
             steps, active_zone_min, very_active_min, fairly_active_min, lightly_active_min,
@@ -281,7 +280,7 @@ def store_biometrics(record):
             %(date)s,
             %(sleep_minutes)s, %(sleep_efficiency)s,
             %(stage_deep)s, %(stage_rem)s, %(stage_light)s, %(stage_wake)s,
-            %(time_in_bed)s, %(sleep_onset_latency_min)s,
+            %(time_in_bed)s,
             %(hrv_rmssd)s, %(hrv_deep_rmssd)s, %(resting_heart_rate)s,
             %(spo2_avg)s, %(spo2_min)s, %(spo2_max)s, %(respiratory_rate)s,
             %(steps)s, %(active_zone_minutes)s, %(very_active_minutes)s, %(fairly_active_minutes)s, %(lightly_active_minutes)s,
@@ -296,7 +295,6 @@ def store_biometrics(record):
             light_sleep_min         = EXCLUDED.light_sleep_min,
             awake_min               = EXCLUDED.awake_min,
             time_in_bed_min         = EXCLUDED.time_in_bed_min,
-            sleep_onset_latency_min = EXCLUDED.sleep_onset_latency_min,
             hrv_ms                  = EXCLUDED.hrv_ms,
             hrv_deep_rmssd          = EXCLUDED.hrv_deep_rmssd,
             rhr_bpm                 = EXCLUDED.rhr_bpm,
@@ -330,7 +328,6 @@ def store_biometrics(record):
                     "stage_light":             record.get("stage_light"),
                     "stage_wake":              record.get("stage_wake"),
                     "time_in_bed":             record.get("time_in_bed"),
-                    "sleep_onset_latency_min": record.get("sleep_onset_latency_min"),
                     "hrv_rmssd":               record.get("hrv_rmssd"),
                     "hrv_deep_rmssd":          record.get("hrv_deep_rmssd"),
                     "resting_heart_rate":      record.get("resting_heart_rate"),
