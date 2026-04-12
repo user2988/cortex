@@ -168,7 +168,6 @@ class FitbitClient:
         summary = data.get("summary", {})
         stages  = summary.get("stages", {})
         main    = data.get("sleep", [{}])[0]
-        print(f"    [debug] sleep main keys: {list(main.keys())}")
         return {
             "sleep_minutes":           summary.get("totalMinutesAsleep"),
             "time_in_bed":             summary.get("totalTimeInBed"),
@@ -179,12 +178,6 @@ class FitbitClient:
             "stage_wake":              stages.get("wake"),
             "sleep_onset_latency_min": main.get("minutesToFallAsleep"),
         }
-
-    def fetch_sleep_score(self, d):
-        data    = self._get(f"/1/user/-/sleep/score/date/{d}.json")
-        # Response: [{"dateTime": "YYYY-MM-DD", "value": N}]
-        entries = data if isinstance(data, list) else [data]
-        return {"sleep_score": entries[0].get("value") if entries else None}
 
     def fetch_heart_rate(self, d):
         data  = self._get(f"/1/user/-/activities/heart/date/{d}/1d.json")
@@ -360,10 +353,9 @@ def run_pipeline():
 
     # Activity from yesterday — full day is complete by morning
     # Sleep/recovery from today — Fitbit keys overnight data to wake-up date
-    activity    = safe_fetch("activity",       client.fetch_activity,       yesterday_str)
-    sleep       = safe_fetch("sleep",          client.fetch_sleep,          today_str)
-    sleep_score = safe_fetch("sleep_score",    client.fetch_sleep_score,    yesterday_str)
-    hrv         = safe_fetch("hrv",            client.fetch_hrv,            today_str)
+    activity = safe_fetch("activity",       client.fetch_activity,       yesterday_str)
+    sleep    = safe_fetch("sleep",          client.fetch_sleep,          today_str)
+    hrv      = safe_fetch("hrv",            client.fetch_hrv,            today_str)
     rhr      = safe_fetch("rhr",            client.fetch_heart_rate,     today_str)
     spo2     = safe_fetch("spo2",           client.fetch_spo2,           today_str)
     br       = safe_fetch("breathing_rate", client.fetch_breathing_rate, today_str)
@@ -372,7 +364,7 @@ def run_pipeline():
     # Record keyed to activity date — sleep is the following night (1-day lag)
     record = {
         "date": yesterday_str,
-        **activity, **sleep, **sleep_score, **hrv, **rhr, **spo2, **br, **vo2max
+        **activity, **sleep, **hrv, **rhr, **spo2, **br, **vo2max
     }
 
     store_biometrics(record)
