@@ -50,6 +50,9 @@ CREATE TABLE IF NOT EXISTS biometrics (
 ALTER TABLE biometrics ADD COLUMN IF NOT EXISTS hrv_deep_rmssd     NUMERIC(6, 2);
 ALTER TABLE biometrics ADD COLUMN IF NOT EXISTS spo2_max_pct       NUMERIC(5, 2);
 ALTER TABLE biometrics ADD COLUMN IF NOT EXISTS lightly_active_min INTEGER;
+ALTER TABLE biometrics DROP COLUMN IF EXISTS   skin_temp_relative;
+ALTER TABLE biometrics DROP COLUMN IF EXISTS   sleep_score;
+ALTER TABLE biometrics DROP COLUMN IF EXISTS   bedtime_consistency_sd;
 
 -- Nutrition — one row per day
 -- Populated from Cronometer CSV export (v2)
