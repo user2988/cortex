@@ -17,8 +17,6 @@ CREATE TABLE IF NOT EXISTS biometrics (
     light_sleep_min         INTEGER,
     awake_min               INTEGER,
     time_in_bed_min         INTEGER,
-    sleep_onset_latency_min INTEGER,
-
     -- Recovery
     hrv_ms                  NUMERIC(6, 2),
     hrv_deep_rmssd          NUMERIC(6, 2),
@@ -53,6 +51,7 @@ ALTER TABLE biometrics ADD COLUMN IF NOT EXISTS lightly_active_min INTEGER;
 ALTER TABLE biometrics DROP COLUMN IF EXISTS   skin_temp_relative;
 ALTER TABLE biometrics DROP COLUMN IF EXISTS   sleep_score;
 ALTER TABLE biometrics DROP COLUMN IF EXISTS   bedtime_consistency_sd;
+ALTER TABLE biometrics DROP COLUMN IF EXISTS   sleep_onset_latency_min;
 
 -- Nutrition — one row per day
 -- Populated from Cronometer CSV export (v2)
