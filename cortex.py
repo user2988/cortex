@@ -40,7 +40,7 @@ DATABASE_URL         = os.environ["DATABASE_URL"]
 class FitbitAuth:
     AUTH_URL  = "https://www.fitbit.com/oauth2/authorize"
     TOKEN_URL = "https://api.fitbit.com/oauth2/token"
-    SCOPES    = "sleep heartrate activity oxygen_saturation cardio_fitness respiratory_rate profile"
+    SCOPES    = "sleep heartrate activity oxygen_saturation cardio_fitness respiratory_rate temperature profile"
 
     def __init__(self):
         self.tokens = self._load_tokens()
