@@ -27,7 +27,6 @@ CREATE TABLE IF NOT EXISTS biometrics (
     spo2_min_pct            NUMERIC(5, 2),
     spo2_max_pct            NUMERIC(5, 2),
     respiratory_rate        NUMERIC(5, 2),
-    skin_temp_relative      NUMERIC(5, 2),
 
     -- Activity (yesterday)
     steps                   INTEGER,
@@ -50,7 +49,6 @@ CREATE TABLE IF NOT EXISTS biometrics (
 -- v3 additive migrations (apply to existing databases without a full reset)
 ALTER TABLE biometrics ADD COLUMN IF NOT EXISTS hrv_deep_rmssd     NUMERIC(6, 2);
 ALTER TABLE biometrics ADD COLUMN IF NOT EXISTS spo2_max_pct       NUMERIC(5, 2);
-ALTER TABLE biometrics ADD COLUMN IF NOT EXISTS skin_temp_relative NUMERIC(5, 2);
 ALTER TABLE biometrics ADD COLUMN IF NOT EXISTS lightly_active_min INTEGER;
 
 -- Nutrition — one row per day
