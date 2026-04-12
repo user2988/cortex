@@ -180,12 +180,6 @@ class FitbitClient:
             "sleep_onset_latency_min": main.get("minutesToFallAsleep"),
         }
 
-    def fetch_sleep_score(self, d):
-        data    = self._get(f"/1/user/-/sleep/score/date/{d}.json")
-        # Response: [{"dateTime": "YYYY-MM-DD", "value": N}]
-        entries = data if isinstance(data, list) else [data]
-        return {"sleep_score": entries[0].get("value") if entries else None}
-
     def fetch_heart_rate(self, d):
         data  = self._get(f"/1/user/-/activities/heart/date/{d}/1d.json")
         value = data.get("activities-heart", [{}])[0].get("value", {})
@@ -194,7 +188,13 @@ class FitbitClient:
     def fetch_hrv(self, d):
         data     = self._get(f"/1/user/-/hrv/date/{d}.json")
         hrv_list = data.get("hrv", [])
-        return {"hrv_rmssd": hrv_list[0]["value"]["dailyRmssd"] if hrv_list else None}
+        if not hrv_list:
+            return {"hrv_rmssd": None, "hrv_deep_rmssd": None}
+        value = hrv_list[0]["value"]
+        return {
+            "hrv_rmssd":      value.get("dailyRmssd"),
+            "hrv_deep_rmssd": value.get("deepRmssd"),
+        }
 
     def fetch_spo2(self, d):
         data  = self._get(f"/1/user/-/spo2/date/{d}.json")
@@ -207,6 +207,7 @@ class FitbitClient:
         return {
             "spo2_avg": value.get("avg"),
             "spo2_min": value.get("min"),
+            "spo2_max": value.get("max"),
         }
 
     def fetch_breathing_rate(self, d):
@@ -215,21 +216,16 @@ class FitbitClient:
         return {"respiratory_rate": br_list[0]["value"]["breathingRate"] if br_list else None}
 
     def fetch_activity(self, d):
-        data     = self._get(f"/1/user/-/activities/date/{d}.json")
-        summary  = data.get("summary", {})
-        hr_zones = {z["name"]: z["minutes"] for z in summary.get("heartRateZones", [])}
-        azm_raw  = summary.get("activeZoneMinutes")
+        data    = self._get(f"/1/user/-/activities/date/{d}.json")
+        summary = data.get("summary", {})
         return {
-            "steps":                summary.get("steps"),
-            "calories_out":         summary.get("caloriesOut"),
-            "active_zone_minutes":  azm_raw.get("totalMinutes") if isinstance(azm_raw, dict) else azm_raw,
-            "very_active_minutes":  summary.get("veryActiveMinutes"),
-            "fairly_active_minutes":summary.get("fairlyActiveMinutes"),
-            "sedentary_minutes":    summary.get("sedentaryMinutes"),
-            "distance_km":          next((d["distance"] for d in summary.get("distances", []) if d["activity"] == "total"), None),
-            "time_in_fat_burn_min": hr_zones.get("Fat Burn"),
-            "time_in_cardio_min":   hr_zones.get("Cardio"),
-            "time_in_peak_min":     hr_zones.get("Peak"),
+            "steps":                  summary.get("steps"),
+            "calories_out":           summary.get("caloriesOut"),
+            "very_active_minutes":    summary.get("veryActiveMinutes"),
+            "fairly_active_minutes":  summary.get("fairlyActiveMinutes"),
+            "lightly_active_minutes": summary.get("lightlyActiveMinutes"),
+            "sedentary_minutes":      summary.get("sedentaryMinutes"),
+            "distance_km":            next((d["distance"] for d in summary.get("distances", []) if d["activity"] == "total"), None),
         }
 
     def fetch_vo2max(self, d):
@@ -246,6 +242,30 @@ class FitbitClient:
             return {"vo2_max": (float(lo) + float(hi)) / 2}
         return {"vo2_max": float(raw)}
 
+    def fetch_hr_zones(self, d):
+        data     = self._get(f"/1/user/-/activities/heart/date/{d}/1d.json")
+        value    = data.get("activities-heart", [{}])[0].get("value", {})
+        hr_zones = {z["name"]: z["minutes"] for z in value.get("heartRateZones", [])}
+        return {
+            "time_in_fat_burn_min": hr_zones.get("Fat Burn"),
+            "time_in_cardio_min":   hr_zones.get("Cardio"),
+            "time_in_peak_min":     hr_zones.get("Peak"),
+        }
+
+    def fetch_azm(self, d):
+        data    = self._get(f"/1/user/-/activities/active-zone-minutes/date/{d}/1d.json")
+        entries = data.get("activities-active-zone-minutes", [])
+        if not entries:
+            return {"active_zone_minutes": None}
+        return {"active_zone_minutes": entries[0].get("value", {}).get("activeZoneMinutes")}
+
+    def fetch_skin_temp(self, d):
+        data    = self._get(f"/1/user/-/temp/skin/date/{d}.json")
+        entries = data.get("tempSkin", [])
+        if not entries:
+            return {"skin_temp_relative": None}
+        return {"skin_temp_relative": entries[0].get("value", {}).get("nightlyRelative")}
+
 
 # ─────────────────────────────────────────────────────────────
 # PART 3 — POSTGRESQL STORAGE
@@ -255,27 +275,30 @@ def store_biometrics(record):
     sql = """
         INSERT INTO biometrics (
             date,
-            sleep_duration_min, sleep_efficiency_pct, sleep_score,
+            sleep_duration_min, sleep_efficiency_pct,
             deep_sleep_min, rem_sleep_min, light_sleep_min, awake_min,
             time_in_bed_min, sleep_onset_latency_min,
-            hrv_ms, rhr_bpm, spo2_avg_pct, spo2_min_pct, respiratory_rate,
-            steps, active_zone_min, very_active_min, fairly_active_min,
+            hrv_ms, hrv_deep_rmssd, rhr_bpm,
+            spo2_avg_pct, spo2_min_pct, spo2_max_pct, respiratory_rate,
+            skin_temp_relative,
+            steps, active_zone_min, very_active_min, fairly_active_min, lightly_active_min,
             sedentary_min, calories_burned, distance_km, vo2_max,
             time_in_fat_burn_min, time_in_cardio_min, time_in_peak_min
         ) VALUES (
             %(date)s,
-            %(sleep_minutes)s, %(sleep_efficiency)s, %(sleep_score)s,
+            %(sleep_minutes)s, %(sleep_efficiency)s,
             %(stage_deep)s, %(stage_rem)s, %(stage_light)s, %(stage_wake)s,
             %(time_in_bed)s, %(sleep_onset_latency_min)s,
-            %(hrv_rmssd)s, %(resting_heart_rate)s, %(spo2_avg)s, %(spo2_min)s, %(respiratory_rate)s,
-            %(steps)s, %(active_zone_minutes)s, %(very_active_minutes)s, %(fairly_active_minutes)s,
+            %(hrv_rmssd)s, %(hrv_deep_rmssd)s, %(resting_heart_rate)s,
+            %(spo2_avg)s, %(spo2_min)s, %(spo2_max)s, %(respiratory_rate)s,
+            %(skin_temp_relative)s,
+            %(steps)s, %(active_zone_minutes)s, %(very_active_minutes)s, %(fairly_active_minutes)s, %(lightly_active_minutes)s,
             %(sedentary_minutes)s, %(calories_out)s, %(distance_km)s, %(vo2_max)s,
             %(time_in_fat_burn_min)s, %(time_in_cardio_min)s, %(time_in_peak_min)s
         )
         ON CONFLICT (date) DO UPDATE SET
             sleep_duration_min      = EXCLUDED.sleep_duration_min,
             sleep_efficiency_pct    = EXCLUDED.sleep_efficiency_pct,
-            sleep_score             = EXCLUDED.sleep_score,
             deep_sleep_min          = EXCLUDED.deep_sleep_min,
             rem_sleep_min           = EXCLUDED.rem_sleep_min,
             light_sleep_min         = EXCLUDED.light_sleep_min,
@@ -283,14 +306,18 @@ def store_biometrics(record):
             time_in_bed_min         = EXCLUDED.time_in_bed_min,
             sleep_onset_latency_min = EXCLUDED.sleep_onset_latency_min,
             hrv_ms                  = EXCLUDED.hrv_ms,
+            hrv_deep_rmssd          = EXCLUDED.hrv_deep_rmssd,
             rhr_bpm                 = EXCLUDED.rhr_bpm,
             spo2_avg_pct            = EXCLUDED.spo2_avg_pct,
             spo2_min_pct            = EXCLUDED.spo2_min_pct,
+            spo2_max_pct            = EXCLUDED.spo2_max_pct,
             respiratory_rate        = EXCLUDED.respiratory_rate,
+            skin_temp_relative      = EXCLUDED.skin_temp_relative,
             steps                   = EXCLUDED.steps,
             active_zone_min         = EXCLUDED.active_zone_min,
             very_active_min         = EXCLUDED.very_active_min,
             fairly_active_min       = EXCLUDED.fairly_active_min,
+            lightly_active_min      = EXCLUDED.lightly_active_min,
             sedentary_min           = EXCLUDED.sedentary_min,
             calories_burned         = EXCLUDED.calories_burned,
             distance_km             = EXCLUDED.distance_km,
@@ -304,32 +331,35 @@ def store_biometrics(record):
         with conn:
             with conn.cursor() as cur:
                 cur.execute(sql, {
-                    "date":                     record.get("date"),
-                    "sleep_minutes":            record.get("sleep_minutes"),
-                    "sleep_efficiency":         record.get("sleep_efficiency"),
-                    "sleep_score":              record.get("sleep_score"),
-                    "stage_deep":               record.get("stage_deep"),
-                    "stage_rem":                record.get("stage_rem"),
-                    "stage_light":              record.get("stage_light"),
-                    "stage_wake":               record.get("stage_wake"),
-                    "time_in_bed":              record.get("time_in_bed"),
-                    "sleep_onset_latency_min":  record.get("sleep_onset_latency_min"),
-                    "hrv_rmssd":                record.get("hrv_rmssd"),
-                    "resting_heart_rate":       record.get("resting_heart_rate"),
-                    "spo2_avg":                 record.get("spo2_avg"),
-                    "spo2_min":                 record.get("spo2_min"),
-                    "respiratory_rate":         record.get("respiratory_rate"),
-                    "steps":                    record.get("steps"),
-                    "active_zone_minutes":      record.get("active_zone_minutes"),
-                    "very_active_minutes":      record.get("very_active_minutes"),
-                    "fairly_active_minutes":    record.get("fairly_active_minutes"),
-                    "sedentary_minutes":        record.get("sedentary_minutes"),
-                    "calories_out":             record.get("calories_out"),
-                    "distance_km":              record.get("distance_km"),
-                    "vo2_max":                  record.get("vo2_max"),
-                    "time_in_fat_burn_min":     record.get("time_in_fat_burn_min"),
-                    "time_in_cardio_min":       record.get("time_in_cardio_min"),
-                    "time_in_peak_min":         record.get("time_in_peak_min"),
+                    "date":                    record.get("date"),
+                    "sleep_minutes":           record.get("sleep_minutes"),
+                    "sleep_efficiency":        record.get("sleep_efficiency"),
+                    "stage_deep":              record.get("stage_deep"),
+                    "stage_rem":               record.get("stage_rem"),
+                    "stage_light":             record.get("stage_light"),
+                    "stage_wake":              record.get("stage_wake"),
+                    "time_in_bed":             record.get("time_in_bed"),
+                    "sleep_onset_latency_min": record.get("sleep_onset_latency_min"),
+                    "hrv_rmssd":               record.get("hrv_rmssd"),
+                    "hrv_deep_rmssd":          record.get("hrv_deep_rmssd"),
+                    "resting_heart_rate":      record.get("resting_heart_rate"),
+                    "spo2_avg":                record.get("spo2_avg"),
+                    "spo2_min":                record.get("spo2_min"),
+                    "spo2_max":                record.get("spo2_max"),
+                    "respiratory_rate":        record.get("respiratory_rate"),
+                    "skin_temp_relative":      record.get("skin_temp_relative"),
+                    "steps":                   record.get("steps"),
+                    "active_zone_minutes":     record.get("active_zone_minutes"),
+                    "very_active_minutes":     record.get("very_active_minutes"),
+                    "fairly_active_minutes":   record.get("fairly_active_minutes"),
+                    "lightly_active_minutes":  record.get("lightly_active_minutes"),
+                    "sedentary_minutes":       record.get("sedentary_minutes"),
+                    "calories_out":            record.get("calories_out"),
+                    "distance_km":             record.get("distance_km"),
+                    "vo2_max":                 record.get("vo2_max"),
+                    "time_in_fat_burn_min":    record.get("time_in_fat_burn_min"),
+                    "time_in_cardio_min":      record.get("time_in_cardio_min"),
+                    "time_in_peak_min":        record.get("time_in_peak_min"),
                 })
         print(f"Stored {record['date']} in PostgreSQL.")
     finally:
@@ -360,19 +390,21 @@ def run_pipeline():
 
     # Activity from yesterday — full day is complete by morning
     # Sleep/recovery from today — Fitbit keys overnight data to wake-up date
-    activity    = safe_fetch("activity",       client.fetch_activity,       yesterday_str)
-    sleep       = safe_fetch("sleep",          client.fetch_sleep,          today_str)
-    sleep_score = safe_fetch("sleep_score",    client.fetch_sleep_score,    yesterday_str)
-    hrv         = safe_fetch("hrv",            client.fetch_hrv,            today_str)
-    rhr      = safe_fetch("rhr",            client.fetch_heart_rate,     today_str)
-    spo2     = safe_fetch("spo2",           client.fetch_spo2,           today_str)
-    br       = safe_fetch("breathing_rate", client.fetch_breathing_rate, today_str)
-    vo2max   = safe_fetch("vo2max",         client.fetch_vo2max,         today_str)
+    activity  = safe_fetch("activity",       client.fetch_activity,       yesterday_str)
+    azm       = safe_fetch("azm",            client.fetch_azm,            yesterday_str)
+    hr_zones  = safe_fetch("hr_zones",       client.fetch_hr_zones,       yesterday_str)
+    sleep     = safe_fetch("sleep",          client.fetch_sleep,          today_str)
+    hrv       = safe_fetch("hrv",            client.fetch_hrv,            today_str)
+    rhr       = safe_fetch("rhr",            client.fetch_heart_rate,     today_str)
+    spo2      = safe_fetch("spo2",           client.fetch_spo2,           today_str)
+    br        = safe_fetch("breathing_rate", client.fetch_breathing_rate, today_str)
+    vo2max    = safe_fetch("vo2max",         client.fetch_vo2max,         today_str)
+    skin_temp = safe_fetch("skin_temp",      client.fetch_skin_temp,      today_str)
 
-    # Record keyed to activity date — sleep is the following night (1-day lag)
+    # Record keyed to activity date — sleep/recovery is for the overnight period ending today
     record = {
         "date": yesterday_str,
-        **activity, **sleep, **sleep_score, **hrv, **rhr, **spo2, **br, **vo2max
+        **activity, **azm, **hr_zones, **sleep, **hrv, **rhr, **spo2, **br, **vo2max, **skin_temp
     }
 
     store_biometrics(record)

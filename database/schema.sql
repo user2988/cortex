@@ -1,6 +1,6 @@
 -- ─────────────────────────────────────────────────────────────
 -- CORTEX — PostgreSQL Schema
--- v2: Biometrics + Nutrition + Weight
+-- v3: Biometrics + Nutrition + Weight
 -- ─────────────────────────────────────────────────────────────
 
 -- Biometrics — one row per day
@@ -12,27 +12,29 @@ CREATE TABLE IF NOT EXISTS biometrics (
     -- Sleep
     sleep_duration_min      INTEGER,
     sleep_efficiency_pct    INTEGER,
-    sleep_score             INTEGER,
     deep_sleep_min          INTEGER,
     rem_sleep_min           INTEGER,
     light_sleep_min         INTEGER,
     awake_min               INTEGER,
     time_in_bed_min         INTEGER,
     sleep_onset_latency_min INTEGER,
-    bedtime_consistency_sd  NUMERIC(6, 2),
 
     -- Recovery
     hrv_ms                  NUMERIC(6, 2),
+    hrv_deep_rmssd          NUMERIC(6, 2),
     rhr_bpm                 INTEGER,
     spo2_avg_pct            NUMERIC(5, 2),
     spo2_min_pct            NUMERIC(5, 2),
+    spo2_max_pct            NUMERIC(5, 2),
     respiratory_rate        NUMERIC(5, 2),
+    skin_temp_relative      NUMERIC(5, 2),
 
     -- Activity (yesterday)
     steps                   INTEGER,
     active_zone_min         INTEGER,
     very_active_min         INTEGER,
     fairly_active_min       INTEGER,
+    lightly_active_min      INTEGER,
     sedentary_min           INTEGER,
     calories_burned         INTEGER,
     distance_km             NUMERIC(6, 3),
@@ -45,9 +47,11 @@ CREATE TABLE IF NOT EXISTS biometrics (
 );
 
 
--- Now ensure sleep_score exists
-ALTER TABLE biometrics
-ADD COLUMN IF NOT EXISTS sleep_score INTEGER;
+-- v3 additive migrations (apply to existing databases without a full reset)
+ALTER TABLE biometrics ADD COLUMN IF NOT EXISTS hrv_deep_rmssd     NUMERIC(6, 2);
+ALTER TABLE biometrics ADD COLUMN IF NOT EXISTS spo2_max_pct       NUMERIC(5, 2);
+ALTER TABLE biometrics ADD COLUMN IF NOT EXISTS skin_temp_relative NUMERIC(5, 2);
+ALTER TABLE biometrics ADD COLUMN IF NOT EXISTS lightly_active_min INTEGER;
 
 -- Nutrition — one row per day
 -- Populated from Cronometer CSV export (v2)
