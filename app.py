@@ -68,6 +68,58 @@ st.sidebar.title("Cortex Explorer")
 st.sidebar.caption("Statistical analysis engine — v2")
 st.sidebar.divider()
 
+page = st.sidebar.radio("", ["Explorer", "Top Findings"], horizontal=True,
+                         label_visibility="collapsed")
+st.sidebar.divider()
+
+# ── Top Findings page ────────────────────────────────────────
+if page == "Top Findings":
+    if st.sidebar.button("↺ Refresh", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+
+    st.title("Top Findings")
+
+    findings = analysis.load_findings()
+
+    if findings.empty:
+        st.info("No findings yet. Run analyses in the Explorer and save results.")
+        st.stop()
+
+    for _, row in findings.iterrows():
+        with st.container(border=True):
+            a_lbl = analysis.COL_LABELS.get(row["variable_a"], row["variable_a"])
+            b_lbl = analysis.COL_LABELS.get(row["variable_b"], row["variable_b"]) \
+                    if row["variable_b"] else None
+            title_txt = f"{'📌 ' if row['pinned'] else ''}" \
+                        f"**{a_lbl}{f'  ×  {b_lbl}' if b_lbl else ''}**"
+            meta_txt  = row["analysis_type"]
+            if row["lag_days"]:
+                meta_txt += f" · lag {int(row['lag_days'])}d"
+            if row["sample_size"]:
+                meta_txt += f" · {int(row['sample_size'])} days"
+
+            hdr, btn_col = st.columns([8, 1])
+            hdr.markdown(f"{title_txt}  \n{meta_txt}")
+            if btn_col.button("✕", key=f"del_{row['id']}", help="Delete"):
+                analysis.delete_finding(int(row["id"]))
+                st.rerun()
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("R²",          f"{float(row['r_squared']):.4f}"  if row['r_squared']  else "—")
+            c2.metric("p-value",     f"{float(row['p_value']):.4f}"    if row['p_value']    else "—")
+            c3.metric("Coefficient", f"{float(row['coefficient']):.4f}" if row['coefficient'] else "—")
+            c4.metric("Saved", row["calculated_at"].strftime("%d %b %Y") if row["calculated_at"] else "—")
+
+            if row["r_squared"] and row["p_value"] and row["coefficient"]:
+                st.caption(analysis.summary_label(
+                    float(row["r_squared"]), float(row["p_value"]), float(row["coefficient"])
+                ))
+
+    st.stop()
+
+# ── Explorer page continues below ────────────────────────────
+
 analysis_type = st.sidebar.selectbox("Analysis Type", ANALYSIS_TYPES)
 
 days_map = {"Last 30 days": 30, "Last 60 days": 60, "Last 90 days": 90, "All data": 0}

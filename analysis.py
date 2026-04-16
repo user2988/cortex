@@ -175,6 +175,35 @@ def load_data(days: int = None) -> pd.DataFrame:
     return df
 
 
+def load_findings() -> pd.DataFrame:
+    """Return all findings ordered by pinned first, then R² descending."""
+    sql = """
+        SELECT id, variable_a, variable_b, r_squared, p_value, coefficient,
+               lag_days, analysis_type, sample_size, calculated_at, pinned
+        FROM findings
+        ORDER BY pinned DESC, r_squared DESC
+    """
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            cols = [desc[0] for desc in cur.description]
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    return pd.DataFrame(rows, columns=cols)
+
+
+def delete_finding(finding_id: int) -> None:
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM findings WHERE id = %s", (finding_id,))
+    finally:
+        conn.close()
+
+
 def save_finding(variable_a: str, variable_b: str | None, r_squared: float,
                  p_value: float, coefficient: float, lag_days: int,
                  analysis_type: str, sample_size: int, pinned: bool = True) -> None:
