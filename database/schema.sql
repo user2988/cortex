@@ -176,14 +176,35 @@ CREATE TABLE IF NOT EXISTS findings (
     pinned          BOOLEAN       DEFAULT FALSE
 );
 
+-- Experiments — user-defined hypothesis tests with a fixed duration
+CREATE TABLE IF NOT EXISTS experiments (
+    id              SERIAL PRIMARY KEY,
+    name            TEXT          NOT NULL,
+    variable_a      TEXT          NOT NULL,
+    variable_b      TEXT          NOT NULL,
+    lag_days        INTEGER       DEFAULT 0,
+    method          TEXT          DEFAULT 'pearson',
+    start_date      DATE          NOT NULL,
+    duration_days   INTEGER       NOT NULL,
+    status          TEXT          DEFAULT 'active',
+    interpretation  TEXT,
+    created_at      TIMESTAMPTZ   DEFAULT NOW()
+);
+
+-- Targets — user-defined daily targets for 30-Day Trends nutrition rows
+CREATE TABLE IF NOT EXISTS targets (
+    variable        TEXT          PRIMARY KEY,
+    target_value    NUMERIC(10, 2) NOT NULL,
+    updated_at      TIMESTAMPTZ   DEFAULT NOW()
+);
+
 
 -- ─────────────────────────────────────────────────────────────
 -- Indexes for common query patterns
 -- ─────────────────────────────────────────────────────────────
 
--- Date range queries (rolling averages, trend windows)
-CREATE INDEX IF NOT EXISTS idx_biometrics_date ON biometrics(date DESC);
-CREATE INDEX IF NOT EXISTS idx_nutrition_date  ON nutrition(date DESC);
-CREATE INDEX IF NOT EXISTS idx_weight_date     ON weight(date DESC);
--- Findings ranked by strength for the Top Findings view
-CREATE INDEX IF NOT EXISTS idx_findings_r2 ON findings(r_squared DESC);
+CREATE INDEX IF NOT EXISTS idx_biometrics_date  ON biometrics(date DESC);
+CREATE INDEX IF NOT EXISTS idx_nutrition_date   ON nutrition(date DESC);
+CREATE INDEX IF NOT EXISTS idx_weight_date      ON weight(date DESC);
+CREATE INDEX IF NOT EXISTS idx_findings_r2      ON findings(r_squared DESC);
+CREATE INDEX IF NOT EXISTS idx_experiments_date ON experiments(start_date DESC);

@@ -175,6 +175,193 @@ def load_data(days: int = None) -> pd.DataFrame:
     return df
 
 
+# ─────────────────────────────────────────────────────────────
+# TARGETS
+# ─────────────────────────────────────────────────────────────
+
+def load_targets() -> dict:
+    """Returns {variable: target_value} for all user-defined targets."""
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT variable, target_value FROM targets")
+            return {row[0]: float(row[1]) for row in cur.fetchall()}
+    finally:
+        conn.close()
+
+
+def save_target(variable: str, value: float) -> None:
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO targets (variable, target_value)
+                    VALUES (%s, %s)
+                    ON CONFLICT (variable) DO UPDATE
+                        SET target_value = EXCLUDED.target_value,
+                            updated_at   = NOW()
+                """, (variable, value))
+    finally:
+        conn.close()
+
+
+# ─────────────────────────────────────────────────────────────
+# EXPERIMENTS
+# ─────────────────────────────────────────────────────────────
+
+def load_experiments() -> pd.DataFrame:
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, name, variable_a, variable_b, lag_days, method,
+                       start_date, duration_days, status, interpretation, created_at
+                FROM experiments
+                ORDER BY created_at DESC
+            """)
+            cols = [desc[0] for desc in cur.description]
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    df = pd.DataFrame(rows, columns=cols)
+    if not df.empty:
+        df["start_date"] = pd.to_datetime(df["start_date"])
+        df["end_date"]   = df["start_date"] + pd.to_timedelta(df["duration_days"], unit="d")
+        df["is_complete"] = df["end_date"].dt.date <= pd.Timestamp.today().date()
+    return df
+
+
+def create_experiment(name: str, variable_a: str, variable_b: str, lag_days: int,
+                      method: str, start_date, duration_days: int) -> int:
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO experiments
+                        (name, variable_a, variable_b, lag_days, method,
+                         start_date, duration_days)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                """, (name, variable_a, variable_b, lag_days, method,
+                      start_date, duration_days))
+                return cur.fetchone()[0]
+    finally:
+        conn.close()
+
+
+def store_interpretation(experiment_id: int, interpretation: str) -> None:
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE experiments
+                    SET status = 'complete', interpretation = %s
+                    WHERE id = %s
+                """, (interpretation, experiment_id))
+    finally:
+        conn.close()
+
+
+def delete_experiment(experiment_id: int) -> None:
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM experiments WHERE id = %s", (experiment_id,))
+    finally:
+        conn.close()
+
+
+def run_experiment_analysis(df: pd.DataFrame, exp) -> dict:
+    """
+    Correlation over the experiment window.
+    Returns stats + pre/during series for dual-color scatter.
+    exp can be a dict or a pandas Series (DataFrame row).
+    """
+    var_a  = exp["variable_a"]
+    var_b  = exp["variable_b"]
+    lag    = int(exp["lag_days"])
+    method = exp["method"]
+    start  = pd.Timestamp(exp["start_date"])
+    end    = start + pd.Timedelta(days=int(exp["duration_days"]))
+
+    working = df[[var_a]].copy()
+    working[var_b] = df[var_b].shift(-lag)
+    working = working.dropna()
+
+    pre    = working[working.index < start]
+    during = working[(working.index >= start) & (working.index < end)]
+
+    if len(during) < 3:
+        return {"error": "Not enough data in experiment window yet — check back soon."}
+
+    fn = stats.spearmanr if method == "spearman" else stats.pearsonr
+    r, p = fn(during[var_a], during[var_b])
+    r2 = r ** 2
+    slope, intercept, *_ = stats.linregress(during[var_a].values, during[var_b].values)
+
+    # OLS line fit across all available paired data for context
+    all_paired = working.dropna()
+    if len(all_paired) >= 3:
+        full_slope, full_intercept, *_ = stats.linregress(
+            all_paired[var_a].values, all_paired[var_b].values)
+    else:
+        full_slope, full_intercept = slope, intercept
+
+    return dict(
+        r2=round(r2, 4), r=round(r, 4), p_value=round(p, 6),
+        coefficient=round(slope, 6), intercept=round(intercept, 6),
+        n=len(during), label=summary_label(r2, p, slope),
+        pre=pre, during=during, all_paired=all_paired,
+        full_slope=full_slope, full_intercept=full_intercept,
+        pre_avg_a=float(pre[var_a].mean()) if len(pre) else None,
+        pre_avg_b=float(pre[var_b].mean()) if len(pre) else None,
+        during_avg_a=float(during[var_a].mean()),
+        during_avg_b=float(during[var_b].mean()),
+    )
+
+
+# ─────────────────────────────────────────────────────────────
+# LLM INTERPRETATION
+# ─────────────────────────────────────────────────────────────
+
+def generate_interpretation(var_a: str, var_b: str, r2: float, p_value: float,
+                             coefficient: float, lag: int, n: int,
+                             pre_avg_a, pre_avg_b,
+                             during_avg_a, during_avg_b) -> str:
+    import anthropic
+    a_lbl    = COL_LABELS.get(var_a, var_a)
+    b_lbl    = COL_LABELS.get(var_b, var_b)
+    lag_str  = f"{lag}-day lag" if lag else "same day"
+    pre_ctx  = ""
+    if pre_avg_a is not None:
+        pre_ctx = (f"Before: {a_lbl} avg {pre_avg_a:.1f}, {b_lbl} avg {pre_avg_b:.1f}. "
+                   f"During: {a_lbl} avg {during_avg_a:.1f}, {b_lbl} avg {during_avg_b:.1f}. ")
+
+    prompt = (f"Variable A: {a_lbl} | Variable B: {b_lbl} | "
+              f"R²: {r2} | p-value: {p_value} | Coefficient: {coefficient} | "
+              f"Lag: {lag_str} | Sample: {n} days. {pre_ctx}")
+
+    client = anthropic.Anthropic()
+    msg = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=200,
+        system=(
+            "You interpret statistical correlation results from a personal health tracking app. "
+            "Never imply causation. Frame R² as explained variation. "
+            "Always note correlation does not confirm causation. "
+            "Do not give health advice or prescribe lifestyle changes. "
+            "Describe what the data shows — nothing more. Maximum 3 sentences. "
+            "If before/during averages differ noticeably, describe the visible shift."
+        ),
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return msg.content[0].text
+
+
 def load_findings() -> pd.DataFrame:
     """Return all findings ordered by pinned first, then R² descending."""
     sql = """

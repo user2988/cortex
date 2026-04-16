@@ -31,6 +31,27 @@ MIGRATIONS = [
         pinned        BOOLEAN       DEFAULT FALSE
     )""",
     "CREATE INDEX IF NOT EXISTS idx_findings_r2 ON findings(r_squared DESC)",
+    # v2: experiments table
+    """CREATE TABLE IF NOT EXISTS experiments (
+        id            SERIAL PRIMARY KEY,
+        name          TEXT          NOT NULL,
+        variable_a    TEXT          NOT NULL,
+        variable_b    TEXT          NOT NULL,
+        lag_days      INTEGER       DEFAULT 0,
+        method        TEXT          DEFAULT 'pearson',
+        start_date    DATE          NOT NULL,
+        duration_days INTEGER       NOT NULL,
+        status        TEXT          DEFAULT 'active',
+        interpretation TEXT,
+        created_at    TIMESTAMPTZ   DEFAULT NOW()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_experiments_date ON experiments(start_date DESC)",
+    # v2: targets table
+    """CREATE TABLE IF NOT EXISTS targets (
+        variable      TEXT          PRIMARY KEY,
+        target_value  NUMERIC(10, 2) NOT NULL,
+        updated_at    TIMESTAMPTZ   DEFAULT NOW()
+    )""",
 ]
 
 def run():
