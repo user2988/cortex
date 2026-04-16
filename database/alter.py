@@ -16,6 +16,21 @@ MIGRATIONS = [
     "ALTER TABLE biometrics DROP COLUMN IF EXISTS   skin_temp_relative",
     "ALTER TABLE biometrics DROP COLUMN IF EXISTS   sleep_score",
     "ALTER TABLE biometrics DROP COLUMN IF EXISTS   bedtime_consistency_sd",
+    # v2: findings table
+    """CREATE TABLE IF NOT EXISTS findings (
+        id            SERIAL PRIMARY KEY,
+        variable_a    TEXT          NOT NULL,
+        variable_b    TEXT,
+        r_squared     NUMERIC(6, 4),
+        p_value       NUMERIC(10, 8),
+        coefficient   NUMERIC(10, 6),
+        lag_days      INTEGER       DEFAULT 0,
+        analysis_type TEXT          NOT NULL,
+        sample_size   INTEGER,
+        calculated_at TIMESTAMPTZ   DEFAULT NOW(),
+        pinned        BOOLEAN       DEFAULT FALSE
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_findings_r2 ON findings(r_squared DESC)",
 ]
 
 def run():
