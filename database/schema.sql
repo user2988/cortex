@@ -160,6 +160,23 @@ CREATE TABLE IF NOT EXISTS weight (
 );
 
 
+-- Findings — correlation/analysis results, updated weekly by the findings job
+-- Also populated on demand via the Streamlit Explorer (pinned=true for manual saves)
+CREATE TABLE IF NOT EXISTS findings (
+    id              SERIAL PRIMARY KEY,
+    variable_a      TEXT          NOT NULL,
+    variable_b      TEXT,
+    r_squared       NUMERIC(6, 4),
+    p_value         NUMERIC(10, 8),
+    coefficient     NUMERIC(10, 6),
+    lag_days        INTEGER       DEFAULT 0,
+    analysis_type   TEXT          NOT NULL,
+    sample_size     INTEGER,
+    calculated_at   TIMESTAMPTZ   DEFAULT NOW(),
+    pinned          BOOLEAN       DEFAULT FALSE
+);
+
+
 -- ─────────────────────────────────────────────────────────────
 -- Indexes for common query patterns
 -- ─────────────────────────────────────────────────────────────
@@ -168,3 +185,5 @@ CREATE TABLE IF NOT EXISTS weight (
 CREATE INDEX IF NOT EXISTS idx_biometrics_date ON biometrics(date DESC);
 CREATE INDEX IF NOT EXISTS idx_nutrition_date  ON nutrition(date DESC);
 CREATE INDEX IF NOT EXISTS idx_weight_date     ON weight(date DESC);
+-- Findings ranked by strength for the Top Findings view
+CREATE INDEX IF NOT EXISTS idx_findings_r2 ON findings(r_squared DESC);
