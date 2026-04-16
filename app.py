@@ -165,7 +165,10 @@ if page == "Insights":
     findings = get_findings()
 
     if findings.empty:
-        st.caption("No findings yet — run analyses in the Explorer and save results.")
+        if n_nut < 30:
+            st.caption(f"Keep logging — your first insights appear after 30 days ({n_nut}/30 nutrition days logged).")
+        else:
+            st.caption("No findings yet — run analyses in the Explorer and save results.")
     else:
         for _, row in findings.head(5).iterrows():
             r2   = float(row["r_squared"])  if row["r_squared"]  is not None else 0

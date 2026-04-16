@@ -1,0 +1,27 @@
+name: Weekly Findings Job
+
+on:
+  schedule:
+    - cron: '0 14 * * 0'   # Every Sunday at 10:00am EDT (UTC-4, Mar–Nov)
+    # - cron: '0 15 * * 0' # Every Sunday at 10:00am EST (UTC-5, Nov–Mar)
+  workflow_dispatch:
+
+jobs:
+  weekly-findings:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install psycopg2-binary pandas scipy
+
+      - name: Run weekly findings job
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python weekly_findings.py
