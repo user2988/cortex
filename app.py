@@ -152,31 +152,7 @@ if st.sidebar.button("↺ Refresh", use_container_width=True):
 # ─────────────────────────────────────────────────────────────
 
 if page == "Insights":
-    df      = get_data(0)
-    targets = get_targets()
-
-    # Targets settings in sidebar
-    st.sidebar.divider()
-    with st.sidebar.expander("⚙  Daily Targets"):
-        st.caption("Set targets for nutrition trend rows. Rows only appear after 14 days of nutrition data.")
-        for lbl, col, unit, kind, _ in TREND_METRICS:
-            if kind == "nut":
-                cur = targets.get(col)
-                val = st.number_input(f"{lbl} ({unit})", min_value=0.0,
-                                      value=float(cur) if cur else 0.0,
-                                      step=1.0, key=f"tgt_{col}")
-                if val > 0 and val != (cur or 0):
-                    analysis.save_target(col, val)
-                    get_targets.clear()
-        # Calorie delta target
-        cur_cal = targets.get("calorie_delta")
-        cal_val = st.number_input("Calorie delta target (kcal)", min_value=-1000.0,
-                                   max_value=1000.0,
-                                   value=float(cur_cal) if cur_cal else 0.0,
-                                   step=50.0, key="tgt_cal")
-        if cal_val != (cur_cal or 0):
-            analysis.save_target("calorie_delta", cal_val)
-            get_targets.clear()
+    df = get_data(0)
 
     # ── Header ──────────────────────────────────────────────
     st.title("Insights")
@@ -192,21 +168,17 @@ if page == "Insights":
         st.caption("No findings yet — run analyses in the Explorer and save results.")
     else:
         for _, row in findings.head(5).iterrows():
-            r2   = float(row["r_squared"]) if row["r_squared"] is not None else 0
+            r2   = float(row["r_squared"])  if row["r_squared"]  is not None else 0
             coef = float(row["coefficient"]) if row["coefficient"] is not None else 0
-            p    = float(row["p_value"]) if row["p_value"] is not None else 1
-            lag  = int(row["lag_days"]) if row["lag_days"] else 0
+            p    = float(row["p_value"])    if row["p_value"]    is not None else 1
+            lag  = int(row["lag_days"])     if row["lag_days"]              else 0
 
             a_lbl = analysis.COL_LABELS.get(row["variable_a"], row["variable_a"])
             b_lbl = analysis.COL_LABELS.get(row["variable_b"], row["variable_b"]) \
                     if row["variable_b"] else None
-            name  = f"{a_lbl} → {b_lbl}" if b_lbl else a_lbl
-
-            dir_lbl  = analysis.r2_label(r2)
-            dir_word = "positive" if coef >= 0 else "negative"
+            name     = f"{a_lbl} → {b_lbl}" if b_lbl else a_lbl
             lag_txt  = f"{lag}-day lag" if lag else "same day"
-            subtitle = f"{dir_lbl} {dir_word} · {lag_txt} · p = {p:.3f}"
-            dot_color = GREEN if coef >= 0 else RED
+            subtitle = f"{analysis.r2_label(r2)} {'positive' if coef >= 0 else 'negative'} · {lag_txt} · p = {p:.3f}"
 
             with st.container(border=True):
                 c1, c2 = st.columns([8, 2])
@@ -222,85 +194,85 @@ if page == "Insights":
     # ── 30-DAY TRENDS ───────────────────────────────────────
     st.markdown("#### 30-DAY TRENDS")
 
-    cutoff  = df.index.max() - pd.Timedelta(days=30)
-    last30  = df[df.index >= cutoff]
+    cutoff = df.index.max() - pd.Timedelta(days=30)
+    last30 = df[df.index >= cutoff]
     any_row = False
 
-    for lbl, col, unit, kind, higher_is_better in TREND_METRICS:
-        series = last30[col].dropna()
-
-        if kind == "nut":
-            n_total_nut = df[col].dropna().shape[0]
-            tgt = targets.get(col)
-            if n_total_nut < 14 or not tgt:
-                continue
-            avg = float(series.mean()) if len(series) else 0
-            pct = avg / tgt
-            if pct >= 0.95:
-                direction, dlbl, color = "↑", "on track", GREEN
-            elif pct >= 0.75:
-                direction, dlbl, color = "→", "near target", ORANGE
-            else:
-                direction, dlbl, color = "↓", "below target", RED
-            value_str = f"{avg:.0f}{unit}"
-        else:
-            if len(series) < 5:
-                continue
-            t     = np.arange(len(series))
-            model = sm.OLS(series.values, sm.add_constant(t)).fit()
-            slope = model.params[1]
-            p_val = model.pvalues[1]
-            avg   = float(series.mean())
-            value_str = f"{avg:.0f}{unit}" if unit != "%" else f"{avg:.1f}%"
-            if p_val > 0.05:
-                direction, dlbl, color = "→", "stable", GRAY
-            elif (slope > 0) == higher_is_better:
-                direction, dlbl, color = ("↑" if slope > 0 else "↓"), "improving", GREEN
-            else:
-                direction, dlbl, color = ("↑" if slope > 0 else "↓"), "declining", RED
-
-        any_row = True
+    def trend_row(lbl, series, value_str, direction, dlbl, color):
         c1, c2, c3, c4 = st.columns([3, 2, 3, 3])
         c1.markdown(f"**{lbl}**")
         c2.markdown(value_str)
-        c3.markdown(
-            f"<span style='color:{color}'>{direction} {dlbl}</span>",
-            unsafe_allow_html=True,
-        )
+        c3.markdown(f"<span style='color:{color}'>{direction} {dlbl}</span>",
+                    unsafe_allow_html=True)
         with c4:
             st.plotly_chart(sparkline(series, color), use_container_width=True,
                             config={"staticPlot": True})
 
-    # Calorie delta row
-    cal_series = last30["calories_in"].dropna()
-    burn_series = last30["calories_burned"]
-    if len(cal_series) >= 14 and targets.get("calorie_delta") is not None:
-        delta = (df["calories_in"] - df["calories_burned"]).dropna()
-        d30   = delta[delta.index >= cutoff]
-        avg_d = float(d30.mean()) if len(d30) else 0
-        tgt_d = float(targets["calorie_delta"])
-        diff  = abs(avg_d - tgt_d)
-        if diff <= 200:
-            direction, dlbl, color = "→", "on track", GREEN
-        elif diff <= 400:
-            direction, dlbl, color = "→", "near target", ORANGE
-        else:
-            color = RED
-            direction = "↑" if avg_d > tgt_d else "↓"
-            dlbl = "above target" if avg_d > tgt_d else "below target"
+    def ols_direction(series, higher_is_better):
+        t     = np.arange(len(series))
+        model = sm.OLS(series.values, sm.add_constant(t)).fit()
+        slope, p_val = model.params[1], model.pvalues[1]
+        if p_val > 0.05:
+            return "→", "stable", GRAY
+        if (slope > 0) == higher_is_better:
+            return ("↑" if slope > 0 else "↓"), "improving", GREEN
+        return ("↑" if slope > 0 else "↓"), "declining", RED
+
+    # HRV, RHR, Sleep Efficiency — OLS slope
+    for lbl, col, unit, kind, higher_is_better in TREND_METRICS:
+        if kind != "bio":
+            continue
+        series = last30[col].dropna()
+        if len(series) < 5:
+            continue
+        avg = float(series.mean())
+        value_str = f"{avg:.1f}%" if unit == "%" else f"{avg:.0f}{unit}"
+        direction, dlbl, color = ols_direction(series, higher_is_better)
+        trend_row(lbl, series, value_str, direction, dlbl, color)
         any_row = True
-        c1, c2, c3, c4 = st.columns([3, 2, 3, 3])
-        c1.markdown("**Calorie delta**")
-        c2.markdown(f"{avg_d:+.0f} kcal")
-        c3.markdown(f"<span style='color:{color}'>{direction} {dlbl}</span>",
-                    unsafe_allow_html=True)
-        with c4:
-            st.plotly_chart(sparkline(d30, color), use_container_width=True,
-                            config={"staticPlot": True})
+
+    # Magnesium, Protein — 30d avg vs all-time personal average (needs 14+ nutrition days)
+    for lbl, col, unit, kind, _ in TREND_METRICS:
+        if kind != "nut":
+            continue
+        all_series = df[col].dropna()
+        if len(all_series) < 14:
+            continue
+        baseline = float(all_series.mean())
+        recent   = last30[col].dropna()
+        avg      = float(recent.mean()) if len(recent) else baseline
+        ratio    = avg / baseline if baseline > 0 else 1
+        if ratio >= 0.97:
+            direction, dlbl, color = "↑", "above average", GREEN
+        elif ratio >= 0.85:
+            direction, dlbl, color = "→", "on average", GRAY
+        else:
+            direction, dlbl, color = "↓", "below average", RED
+        trend_row(lbl, recent if len(recent) else all_series.iloc[-30:],
+                  f"{avg:.0f}{unit}", direction, dlbl, color)
+        any_row = True
+
+    # Calorie delta — OLS slope of (calories_in − calories_burned)
+    delta_all = (df["calories_in"] - df["calories_burned"]).dropna()
+    delta_30  = delta_all[delta_all.index >= cutoff]
+    if len(delta_30) >= 14:
+        avg_d = float(delta_30.mean())
+        t     = np.arange(len(delta_30))
+        model = sm.OLS(delta_30.values, sm.add_constant(t)).fit()
+        slope, p_val = model.params[1], model.pvalues[1]
+        if p_val > 0.05:
+            direction, dlbl, color = "→", "stable", GRAY
+        elif slope > 0:
+            direction, dlbl, color = "↑", "increasing surplus", ORANGE
+        else:
+            direction, dlbl, color = "↓", "increasing deficit", ORANGE
+        trend_row("Calorie delta", delta_30, f"{avg_d:+.0f} kcal",
+                  direction, dlbl, color)
+        any_row = True
 
     if not any_row:
         st.caption("Trend rows appear after 5+ days of data. "
-                   "Set nutrition targets in the sidebar to unlock nutrition rows.")
+                   "Nutrition rows unlock after 14 days of logging.")
 
     st.divider()
 
