@@ -460,7 +460,7 @@ if page == "Experiments":
         else:
             with st.form("new_exp"):
                 name     = st.text_input("Hypothesis / name",
-                                          placeholder="e.g. Does reducing sodium improve deep sleep?")
+                                          placeholder="e.g. Reducing sodium impact on deep sleep")
                 c1, c2   = st.columns(2)
                 a_lbl_sel = c1.selectbox("Variable A", ALL_LABELS)
                 b_lbl_sel = c2.selectbox("Variable B", ALL_LABELS, index=1)
