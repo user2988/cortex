@@ -810,6 +810,6 @@ if saveable:
                 int(meta.get("lag", 0) or 0), rtype, int(result["n"]),
                 pinned=True)
             get_findings.clear()
-            st.toast("Saved to Findings.", icon="✓")
+            st.toast("Saved to Findings.", icon="✅")
         except Exception as e:
             st.error(f"Save failed: {e}")
