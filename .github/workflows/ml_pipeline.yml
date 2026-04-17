@@ -1,0 +1,27 @@
+name: Weekly ML Pipeline
+
+on:
+  schedule:
+    - cron: '0 17 * * 0'   # Every Sunday at 1:00pm EDT (UTC-4, Mar–Nov)
+    # - cron: '0 18 * * 0' # Every Sunday at 1:00pm EST (UTC-5, Nov–Mar)
+  workflow_dispatch:
+
+jobs:
+  ml-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install psycopg2-binary pandas numpy scipy xgboost scikit-learn joblib
+
+      - name: Run ML pipeline
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python -m ml.pipeline
