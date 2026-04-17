@@ -34,11 +34,108 @@ ANALYSIS_TYPES = [
 SINGLE_VAR = {"30-Day Trend (OLS)", "Anomaly Detection", "Forecast (7-Day)", "Decomposition"}
 MULTI_PRED = {"Multiple OLS Regression"}
 
-BIO_OPTIONS = {f"[Bio]  {analysis.COL_LABELS[c]}": c for c in analysis.BIOMETRIC_COLS}
-NUT_OPTIONS = {f"[Nut]  {analysis.COL_LABELS[c]}": c for c in analysis.NUTRITION_COLS}
-ALL_OPTIONS = {**BIO_OPTIONS, **NUT_OPTIONS}
-ALL_LABELS  = list(ALL_OPTIONS.keys())
-COL_TO_LABEL = {v: k for k, v in ALL_OPTIONS.items()}
+# ── Variable taxonomy ────────────────────────────────────────
+# VAR_A: inputs/drivers (nutrition, activity)
+# VAR_B: outputs/targets (sleep, cardiovascular)
+
+VAR_A_TREE = {
+    "Nutrition  ·  Macros": {
+        "calories_in": "Calories In", "protein_g": "Protein",
+        "carbs_g": "Carbohydrates", "fat_g": "Total Fat",
+        "fibre_g": "Fibre", "sugar_g": "Sugar", "water_ml": "Water",
+    },
+    "Nutrition  ·  Fats": {
+        "saturated_fat_g": "Saturated Fat", "monounsaturated_fat_g": "Monounsaturated Fat",
+        "polyunsaturated_fat_g": "Polyunsaturated Fat", "trans_fat_g": "Trans Fat",
+        "cholesterol_mg": "Cholesterol", "omega3_mg": "Omega-3",
+        "omega6_mg": "Omega-6", "ala_mg": "ALA", "epa_mg": "EPA", "dha_mg": "DHA",
+    },
+    "Nutrition  ·  Micronutrients": {
+        "vitamin_a_mcg": "Vitamin A", "vitamin_d_iu": "Vitamin D",
+        "vitamin_e_mg": "Vitamin E", "vitamin_k_mcg": "Vitamin K",
+        "vitamin_c_mg": "Vitamin C", "thiamine_mg": "Thiamine (B1)",
+        "riboflavin_mg": "Riboflavin (B2)", "niacin_mg": "Niacin (B3)",
+        "pantothenic_acid_mg": "Pantothenic Acid (B5)", "vitamin_b6_mg": "Vitamin B6",
+        "biotin_mcg": "Biotin (B7)", "folate_mcg": "Folate (B9)",
+        "vitamin_b12_mcg": "Vitamin B12", "calcium_mg": "Calcium",
+        "iron_mg": "Iron", "magnesium_mg": "Magnesium", "phosphorus_mg": "Phosphorus",
+        "potassium_mg": "Potassium", "zinc_mg": "Zinc", "selenium_mcg": "Selenium",
+        "copper_mg": "Copper", "manganese_mg": "Manganese",
+        "chromium_mcg": "Chromium", "iodine_mcg": "Iodine", "molybdenum_mcg": "Molybdenum",
+    },
+    "Nutrition  ·  Amino Acids": {
+        "tryptophan_g": "Tryptophan", "threonine_g": "Threonine",
+        "isoleucine_g": "Isoleucine", "leucine_g": "Leucine",
+        "lysine_g": "Lysine", "methionine_g": "Methionine",
+        "phenylalanine_g": "Phenylalanine", "valine_g": "Valine",
+        "histidine_g": "Histidine", "alanine_g": "Alanine",
+        "arginine_g": "Arginine", "aspartic_acid_g": "Aspartic Acid",
+        "cystine_g": "Cystine", "glutamic_acid_g": "Glutamic Acid",
+        "glycine_g": "Glycine", "proline_g": "Proline", "serine_g": "Serine",
+        "tyrosine_g": "Tyrosine", "hydroxyproline_g": "Hydroxyproline",
+    },
+    "Activity  ·  Volume": {
+        "steps": "Steps", "distance_km": "Distance",
+        "calories_burned": "Calories Burned", "sedentary_min": "Sedentary Time",
+        "lightly_active_min": "Lightly Active",
+    },
+    "Activity  ·  Intensity": {
+        "active_zone_min": "Active Zone Minutes",
+        "very_active_min": "Very Active", "fairly_active_min": "Fairly Active",
+    },
+    "Activity  ·  Zones": {
+        "time_in_fat_burn_min": "Fat Burn Zone",
+        "time_in_cardio_min": "Cardio Zone", "time_in_peak_min": "Peak Zone",
+    },
+}
+
+VAR_B_TREE = {
+    "Sleep  ·  Primary": {
+        "sleep_efficiency_pct": "Sleep Efficiency",
+        "sleep_duration_min": "Sleep Duration",
+    },
+    "Sleep  ·  Architecture": {
+        "deep_sleep_min": "Deep Sleep", "rem_sleep_min": "REM Sleep",
+        "light_sleep_min": "Light Sleep", "awake_min": "Awake Time",
+    },
+    "Sleep  ·  Behavioural": {
+        "time_in_bed_min": "Time in Bed",
+    },
+    "Cardiovascular  ·  Heart": {
+        "hrv_ms": "HRV RMSSD", "hrv_deep_rmssd": "HRV Deep RMSSD",
+        "rhr_bpm": "Resting Heart Rate",
+    },
+    "Cardiovascular  ·  Oxygen": {
+        "spo2_avg_pct": "SpO2 Average",
+        "spo2_min_pct": "SpO2 Minimum", "spo2_max_pct": "SpO2 Maximum",
+    },
+    "Cardiovascular  ·  Respiratory": {
+        "respiratory_rate": "Respiratory Rate", "vo2_max": "VO2 Max",
+    },
+}
+
+def _flat(tree):
+    out = {}
+    for d in tree.values(): out.update(d)
+    return out
+
+VAR_A_FLAT = _flat(VAR_A_TREE)   # col → short label
+VAR_B_FLAT = _flat(VAR_B_TREE)
+VAR_ALL_FLAT = {**VAR_A_FLAT, **VAR_B_FLAT}
+
+def col_label(col):
+    return VAR_ALL_FLAT.get(col, analysis.COL_LABELS.get(col, col))
+
+def _exp_opts(tree):
+    out = {}
+    for grp, vars_d in tree.items():
+        sub = grp.split("  ·  ", 1)[-1]
+        for col, name in vars_d.items():
+            out[f"{sub}  ·  {name}"] = col
+    return out
+
+EXP_A_OPTIONS = _exp_opts(VAR_A_TREE)   # label → col
+EXP_B_OPTIONS = _exp_opts(VAR_B_TREE)
 
 TREND_METRICS = [
     ("HRV",             "hrv_ms",           "ms",  "bio", True),
@@ -437,8 +534,8 @@ if page == "Experiments":
                 name     = st.text_input("Hypothesis / name",
                                           placeholder="e.g. Reducing sodium impact on deep sleep")
                 c1, c2   = st.columns(2)
-                a_lbl_sel = c1.selectbox("Variable A", ALL_LABELS)
-                b_lbl_sel = c2.selectbox("Variable B", ALL_LABELS, index=1)
+                a_lbl_sel = c1.selectbox("Variable A  (input / driver)",  list(EXP_A_OPTIONS.keys()))
+                b_lbl_sel = c2.selectbox("Variable B  (output / target)", list(EXP_B_OPTIONS.keys()))
                 c3, c4, c5 = st.columns(3)
                 lag    = c3.selectbox("Lag (days)", [0, 1, 2, 3])
                 method = c4.radio("Method", ["pearson", "spearman"], horizontal=True)
@@ -452,8 +549,8 @@ if page == "Experiments":
                     else:
                         analysis.create_experiment(
                             name=name,
-                            variable_a=ALL_OPTIONS[a_lbl_sel],
-                            variable_b=ALL_OPTIONS[b_lbl_sel],
+                            variable_a=EXP_A_OPTIONS[a_lbl_sel],
+                            variable_b=EXP_B_OPTIONS[b_lbl_sel],
                             lag_days=lag, method=method,
                             start_date=start, duration_days=int(dur),
                         )
@@ -523,25 +620,56 @@ date_range = (f"{df.index.min().date()} → {df.index.max().date()}" if len(df) 
 st.sidebar.caption(f"**{n_bio}** biometric · **{n_nut}** nutrition days  \n{date_range}")
 st.sidebar.divider()
 
-if analysis_type in MULTI_PRED:
-    pred_labels   = st.sidebar.multiselect("Predictors (A)", ALL_LABELS, default=ALL_LABELS[:2])
-    outcome_label = st.sidebar.selectbox("Outcome (B)", ALL_LABELS)
-    predictors    = [ALL_OPTIONS[l] for l in pred_labels]
-    outcome       = ALL_OPTIONS[outcome_label]
-    var_a = var_b = None
-elif analysis_type in SINGLE_VAR:
-    var_a_label = st.sidebar.selectbox("Variable", ALL_LABELS)
-    var_a = ALL_OPTIONS[var_a_label]; var_b = None
-    if   analysis_type == "Decomposition":     period    = st.sidebar.selectbox("Period (days)", [7, 14, 30])
-    elif analysis_type == "Anomaly Detection": window    = st.sidebar.slider("Baseline window", 14, 60, 30); threshold = st.sidebar.slider("Threshold (SD)", 1.0, 3.0, 1.5, 0.1)
-else:
-    var_a_label = st.sidebar.selectbox("Variable A", ALL_LABELS, index=0)
-    var_b_label = st.sidebar.selectbox("Variable B", ALL_LABELS, index=1)
-    var_a = ALL_OPTIONS[var_a_label]; var_b = ALL_OPTIONS[var_b_label]
-    if   analysis_type == "Lagged Correlation": lag = st.sidebar.selectbox("Lag (days)", [0,1,2,3], index=1); corr_method = st.sidebar.radio("Method", ["Pearson","Spearman"], horizontal=True).lower()
-    elif analysis_type == "Rolling Average":    window = st.sidebar.selectbox("Window (days)", [7,14]); corr_method = st.sidebar.radio("Method", ["Pearson","Spearman"], horizontal=True).lower()
+# Analysis-specific settings stay in sidebar
+if   analysis_type == "Lagged Correlation": lag = st.sidebar.selectbox("Lag (days)", [0,1,2,3], index=1); corr_method = st.sidebar.radio("Method", ["Pearson","Spearman"], horizontal=True).lower()
+elif analysis_type == "Rolling Average":    window = st.sidebar.selectbox("Window (days)", [7,14]); corr_method = st.sidebar.radio("Method", ["Pearson","Spearman"], horizontal=True).lower()
+elif analysis_type == "Decomposition":      period = st.sidebar.selectbox("Period (days)", [7, 14, 30])
+elif analysis_type == "Anomaly Detection":  window = st.sidebar.slider("Baseline window", 14, 60, 30); threshold = st.sidebar.slider("Threshold (SD)", 1.0, 3.0, 1.5, 0.1)
 
 run_clicked = st.sidebar.button("Run Analysis", type="primary", use_container_width=True)
+
+# ── Main body variable picker ────────────────────────────────
+st.title("Explorer")
+_combined_tree = {**VAR_A_TREE, **VAR_B_TREE}
+
+if analysis_type in SINGLE_VAR:
+    _sv_group = st.selectbox("", list(_combined_tree.keys()), key="sv_group", label_visibility="collapsed")
+    var_a = st.selectbox("", list(_combined_tree[_sv_group].keys()),
+                         format_func=lambda c: _combined_tree[_sv_group][c],
+                         key=f"sv_var_{_sv_group}", label_visibility="collapsed")
+    var_b = predictors = outcome = outcome_label = None
+
+elif analysis_type in MULTI_PRED:
+    _cl, _cr = st.columns([3, 2])
+    _ag = _cl.selectbox("Predictor group", list(VAR_A_TREE.keys()), key="ols_a_group")
+    predictors = _cl.multiselect("Predictors (A)", list(VAR_A_TREE[_ag].keys()),
+                                 default=list(VAR_A_TREE[_ag].keys())[:1],
+                                 format_func=lambda c: VAR_A_TREE[_ag][c],
+                                 key=f"ols_preds_{_ag}")
+    _bg = _cr.selectbox("Outcome group", list(VAR_B_TREE.keys()), key="ols_b_group")
+    outcome = _cr.selectbox("Outcome (B)", list(VAR_B_TREE[_bg].keys()),
+                            format_func=lambda c: VAR_B_TREE[_bg][c],
+                            key=f"ols_b_var_{_bg}")
+    outcome_label = col_label(outcome)
+    var_a = var_b = None
+
+else:
+    _cl, _cr = st.columns(2)
+    with _cl:
+        st.markdown("**Variable A** — what you're testing")
+        _ag = st.selectbox("", list(VAR_A_TREE.keys()), key="a_group", label_visibility="collapsed")
+        var_a = st.selectbox("", list(VAR_A_TREE[_ag].keys()),
+                             format_func=lambda c: VAR_A_TREE[_ag][c],
+                             key=f"a_var_{_ag}", label_visibility="collapsed")
+    with _cr:
+        st.markdown("**Variable B** — what you're measuring")
+        _bg = st.selectbox("", list(VAR_B_TREE.keys()), key="b_group", label_visibility="collapsed")
+        var_b = st.selectbox("", list(VAR_B_TREE[_bg].keys()),
+                             format_func=lambda c: VAR_B_TREE[_bg][c],
+                             key=f"b_var_{_bg}", label_visibility="collapsed")
+    predictors = outcome = outcome_label = None
+
+st.divider()
 
 if "result" not in st.session_state:
     st.session_state.result = None; st.session_state.result_type = None; st.session_state.result_meta = {}
@@ -561,23 +689,22 @@ if run_clicked:
     st.session_state.result = res; st.session_state.result_type = analysis_type
     st.session_state.result_meta = {
         "var_a": var_a, "var_b": var_b,
-        "var_a_label": COL_TO_LABEL.get(var_a, var_a) if var_a else None,
-        "var_b_label": COL_TO_LABEL.get(var_b, var_b) if var_b else None,
+        "var_a_label": col_label(var_a) if var_a else None,
+        "var_b_label": col_label(var_b) if var_b else None,
         "analysis_type": analysis_type,
         "lag": locals().get("lag", 0), "window": locals().get("window"),
         "period": locals().get("period"), "threshold": locals().get("threshold"),
         "predictors": locals().get("predictors"), "outcome": locals().get("outcome"),
-        "outcome_label": locals().get("outcome_label"),
+        "outcome_label": col_label(outcome) if locals().get("outcome") else None,
     }
 
 result = st.session_state.result; rtype = st.session_state.result_type; meta = st.session_state.result_meta
 
 if result is None:
-    st.title("Explorer")
     st.info("Configure your analysis in the sidebar and click **Run Analysis**.")
     st.stop()
 if "error" in result:
-    st.title("Explorer"); st.error(result["error"]); st.stop()
+    st.error(result["error"]); st.stop()
 
 if   rtype in MULTI_PRED:  title = f"Multiple OLS — {meta['outcome_label']}"
 elif rtype in SINGLE_VAR:  title = f"{rtype} — {meta['var_a_label']}"
@@ -632,11 +759,11 @@ elif rtype == "Multiple OLS Regression":
                              hovertemplate="Actual: %{x:.2f}<br>Predicted: %{y:.2f}<extra></extra>"))
     fig.add_trace(go.Scatter(x=[mn,mx], y=[mn,mx], mode="lines",
                              line=dict(color=GREEN, dash="dash"), showlegend=False))
-    ol = meta["outcome_label"].replace("[Nut]  ","").replace("[Bio]  ","")
+    ol = meta["outcome_label"]
     fig.update_layout(xaxis_title=f"Actual {ol}", yaxis_title=f"Predicted {ol}", height=450, margin=dict(t=20))
     st.plotly_chart(fig, use_container_width=True)
     st.subheader("Coefficients")
-    pl = [COL_TO_LABEL.get(p,p).replace("[Nut]  ","").replace("[Bio]  ","") for p in meta["predictors"]]
+    pl = [col_label(p) for p in meta["predictors"]]
     st.dataframe(pd.DataFrame({"Variable": pl,
         "Coefficient": [result["coefficients"][p] for p in meta["predictors"]],
         "p-value":     [result["p_values"][p]     for p in meta["predictors"]],
