@@ -569,7 +569,7 @@ if page == "Experiments":
                 method = c4.radio("Method", ["pearson", "spearman"], horizontal=True)
                 dur    = c5.number_input("Duration (days, min 14)", min_value=14,
                                          max_value=365, value=30, step=1)
-                start  = st.date_input("Start date")
+                start  = st.date_input("Start date", min_value=pd.Timestamp.today().date())
                 submit = st.form_submit_button("Create experiment", type="primary")
                 if submit:
                     _fa_cat = st.session_state.get("exp_a_cat", A_CATS[0])
