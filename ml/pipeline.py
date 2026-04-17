@@ -2,10 +2,11 @@
 Cortex ML — Component 5: Pipeline Orchestrator
 
 Runs the full ML pipeline end-to-end in the correct order:
-    1. data_builder  — load and transform data
-    2. wellness_score — compute daily target scores
-    3. model_trainer  — train XGBoost model
-    4. stack_optimiser — find optimal activity targets
+    1. data_builder      — load and transform data
+    2. wellness_score    — compute daily target scores
+    2.5 outcome_evaluator — score prior recs whose 14-day post-window has elapsed
+    3. model_trainer     — train XGBoost model
+    4. stack_optimiser   — find optimal activity targets
 
 This is the entry point called by GitHub Actions each week.
 
@@ -32,7 +33,7 @@ from pathlib import Path
 # Ensure the repo root is on the path when called directly
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from ml import data_builder, wellness_score, model_trainer, stack_optimiser
+from ml import data_builder, wellness_score, outcome_evaluator, model_trainer, stack_optimiser
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
@@ -143,6 +144,17 @@ def run() -> bool:
         print(f"  Scored rows : {len(valid)} / {len(scores)}")
         print(f"  Score range : {valid.min():.1f} – {valid.max():.1f}")
         print(f"  Score mean  : {valid.mean():.1f}")
+
+        # ── Stage 2.5: Evaluate past recommendations ─────────
+        # Close the learning loop: score how well prior recs played out.
+        # Isolated try/except — a failure here must never block training.
+        stage = "outcome_evaluator"
+        print(f"\n[pipeline] Stage 2.5 — {stage}")
+        try:
+            outcome_evaluator.evaluate(scores)
+        except Exception as eval_err:
+            print(f"  [pipeline] outcome_evaluator failed (continuing): {eval_err}",
+                  file=sys.stderr)
 
         # ── Stage 3: Model training ──────────────────────────
         stage = "model_trainer"

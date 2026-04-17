@@ -176,10 +176,61 @@ def get_ml_recommendation():
     except Exception:
         return None
 
+@st.cache_data(ttl=300)
+def get_ml_outcomes(limit: int = 12):
+    """Return recent recommendation outcome rows, newest first, or []."""
+    import psycopg2, json
+    DATABASE_URL = os.environ.get("DATABASE_URL")
+    if not DATABASE_URL:
+        return []
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT o.rec_id, o.evaluated_at,
+                           o.baseline_start, o.baseline_end,
+                           o.outcome_start,  o.outcome_end,
+                           o.baseline_wellness_avg, o.outcome_wellness_avg,
+                           o.actual_delta, o.predicted_delta,
+                           o.adherence_overall, o.per_metric,
+                           r.run_at, r.confidence_tier
+                    FROM ml_recommendation_outcomes o
+                    JOIN ml_recommendations r ON r.id = o.rec_id
+                    ORDER BY r.run_at DESC
+                    LIMIT %s
+                """, (limit,))
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        return []
+
+    out = []
+    for row in rows:
+        per_metric = row[11] if isinstance(row[11], list) else (json.loads(row[11]) if row[11] else [])
+        out.append({
+            "rec_id":             row[0],
+            "evaluated_at":       row[1],
+            "baseline_start":     row[2],
+            "baseline_end":       row[3],
+            "outcome_start":      row[4],
+            "outcome_end":        row[5],
+            "baseline_wellness":  float(row[6]) if row[6] is not None else None,
+            "outcome_wellness":   float(row[7]) if row[7] is not None else None,
+            "actual_delta":       float(row[8]) if row[8] is not None else None,
+            "predicted_delta":    float(row[9]) if row[9] is not None else None,
+            "adherence":          float(row[10]) if row[10] is not None else None,
+            "per_metric":         per_metric,
+            "rec_run_at":         row[12],
+            "tier":               row[13],
+        })
+    return out
+
 def bust_cache():
     get_data.clear(); get_findings.clear()
     get_experiments.clear(); get_targets.clear()
-    get_ml_recommendation.clear()
+    get_ml_recommendation.clear(); get_ml_outcomes.clear()
 
 # ─────────────────────────────────────────────────────────────
 # HELPERS
@@ -995,6 +1046,89 @@ if page == "Recommendations":
         st.metric("Model Confidence", tier_label,
                   delta=f"R² {rec['test_r2']:.2f}" if rec["test_r2"] else None,
                   delta_color="off")
+
+    # ── Outcomes — how prior recs actually played out ────────
+    outcomes = get_ml_outcomes()
+    if outcomes:
+        st.divider()
+        st.markdown("#### How prior recommendations played out")
+        st.caption("Each rec is evaluated 14 days after it was issued — "
+                   "wellness delta measured against the 14 days before.")
+
+        latest = outcomes[0]
+        o1, o2, o3 = st.columns(3)
+        with o1:
+            pre  = latest["baseline_wellness"]
+            post = latest["outcome_wellness"]
+            delta = latest["actual_delta"]
+            st.metric(
+                "Wellness: before → after",
+                f"{pre:.1f} → {post:.1f}" if (pre is not None and post is not None) else "—",
+                delta=f"{delta:+.1f}" if delta is not None else None,
+            )
+        with o2:
+            pd_ = latest["predicted_delta"]
+            ad_ = latest["actual_delta"]
+            if pd_ is not None and ad_ is not None:
+                err = ad_ - pd_
+                st.metric("Predicted Δ vs actual Δ",
+                          f"{pd_:+.1f} vs {ad_:+.1f}",
+                          delta=f"gap {err:+.1f}", delta_color="off")
+            else:
+                st.metric("Predicted Δ vs actual Δ", "—")
+        with o3:
+            adh = latest["adherence"]
+            st.metric("Adherence",
+                      f"{adh * 100:.0f}%" if adh is not None else "—",
+                      delta_color="off")
+
+        # Per-metric breakdown for the latest outcome
+        per = [m for m in (latest.get("per_metric") or []) if m.get("adherence") is not None]
+        if per:
+            per_sorted = sorted(per, key=lambda m: m.get("importance", 0), reverse=True)[:10]
+            with st.expander("Per-metric adherence (top 10 by importance)"):
+                for m in per_sorted:
+                    lbl = analysis.COL_LABELS.get(m["metric"], m["metric"])
+                    rec_v = m.get("recommended")
+                    act_v = m.get("actual")
+                    adh_v = m.get("adherence")
+                    st.caption(
+                        f"{lbl} — target {rec_v:,.1f}, actual {act_v:,.1f}, "
+                        f"adherence {adh_v * 100:.0f}%"
+                    )
+
+        # Calibration chart — only meaningful with ≥3 outcomes
+        calibratable = [o for o in outcomes
+                        if o["predicted_delta"] is not None and o["actual_delta"] is not None]
+        if len(calibratable) >= 3:
+            xs = [o["predicted_delta"] for o in calibratable]
+            ys = [o["actual_delta"]    for o in calibratable]
+            lim = max(abs(v) for v in xs + ys + [1.0])
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=[-lim, lim], y=[-lim, lim],
+                mode="lines", line=dict(color=GRAY, dash="dot", width=1),
+                hoverinfo="skip", showlegend=False,
+            ))
+            fig.add_trace(go.Scatter(
+                x=xs, y=ys, mode="markers",
+                marker=dict(color=BLUE, size=10),
+                text=[f"rec {o['rec_id']}" for o in calibratable],
+                hovertemplate="%{text}<br>predicted %{x:+.1f}<br>actual %{y:+.1f}<extra></extra>",
+                showlegend=False,
+            ))
+            fig.update_layout(
+                height=320,
+                margin=dict(l=0, r=0, t=10, b=0),
+                xaxis_title="Predicted Δ wellness",
+                yaxis_title="Actual Δ wellness",
+                xaxis=dict(range=[-lim, lim], zeroline=True),
+                yaxis=dict(range=[-lim, lim], zeroline=True),
+            )
+            st.markdown("**Model calibration**")
+            st.caption("Points on the dotted line mean the model predicted the change exactly. "
+                       f"{len(calibratable)} evaluated rec(s).")
+            st.plotly_chart(fig, use_container_width=True)
 
     st.divider()
 
