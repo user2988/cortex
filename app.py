@@ -176,10 +176,38 @@ def get_ml_recommendation():
     except Exception:
         return None
 
+@st.cache_data(ttl=300)
+def get_ml_outcomes():
+    """Return past recommendation outcomes, most recent first."""
+    import psycopg2
+    DATABASE_URL = os.environ.get("DATABASE_URL")
+    if not DATABASE_URL:
+        return []
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT o.evaluated_at, o.wellness_before_avg,
+                           o.wellness_after_avg, o.wellness_delta,
+                           o.predicted_delta, o.n_days_before, o.n_days_after,
+                           r.run_at
+                    FROM ml_recommendation_outcomes o
+                    JOIN ml_recommendations r ON r.id = o.recommendation_id
+                    ORDER BY r.run_at DESC
+                    LIMIT 12
+                """)
+                cols = [d[0] for d in cur.description]
+                return [dict(zip(cols, row)) for row in cur.fetchall()]
+        finally:
+            conn.close()
+    except Exception:
+        return []
+
 def bust_cache():
     get_data.clear(); get_findings.clear()
     get_experiments.clear(); get_targets.clear()
-    get_ml_recommendation.clear()
+    get_ml_recommendation.clear(); get_ml_outcomes.clear()
 
 # ─────────────────────────────────────────────────────────────
 # HELPERS
@@ -1074,3 +1102,33 @@ if page == "Recommendations":
             yaxis=dict(autorange="reversed"),
         )
         st.plotly_chart(fig, use_container_width=True)
+
+    # ── Outcome history ──────────────────────────────────────
+    outcomes = get_ml_outcomes()
+    if outcomes:
+        st.divider()
+        st.markdown("#### Outcome History")
+        st.caption(
+            "7-day wellness average before vs. after each weekly recommendation. "
+            "Reflects what actually happened — not whether you followed the protocol."
+        )
+        for o in outcomes:
+            rec_date   = pd.Timestamp(o["run_at"]).strftime("%-d %b %Y")
+            before     = o["wellness_before_avg"]
+            after      = o["wellness_after_avg"]
+            delta      = o["wellness_delta"]
+            pred_delta = o["predicted_delta"]
+
+            if before is None or after is None:
+                continue
+
+            delta_color = "normal" if delta >= 0 else "inverse"
+            with st.container(border=True):
+                c1, c2, c3, c4 = st.columns(4)
+                c1.markdown(f"**Week of {rec_date}**")
+                c2.metric("Before", f"{float(before):.1f}")
+                c3.metric("After",  f"{float(after):.1f}",
+                          delta=f"{float(delta):+.1f}", delta_color=delta_color)
+                if pred_delta is not None:
+                    c4.metric("Model predicted", f"{float(pred_delta):+.1f}",
+                              delta_color="off")

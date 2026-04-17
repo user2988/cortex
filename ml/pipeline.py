@@ -32,7 +32,7 @@ from pathlib import Path
 # Ensure the repo root is on the path when called directly
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from ml import data_builder, wellness_score, model_trainer, stack_optimiser
+from ml import data_builder, wellness_score, model_trainer, stack_optimiser, outcome_tracker
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
@@ -105,16 +105,23 @@ def _log(
 # PIPELINE
 # ─────────────────────────────────────────────────────────────
 
-def run() -> bool:
+def run() -> bool:  # noqa: C901
     """
     Execute the full ML pipeline and return True on success.
 
-    Returns False on graceful skip (e.g. insufficient data) or failure.
-    All exceptions are caught and logged — this function never raises.
+    Stages
+    ------
+    1. data_builder    — load and transform data
+    2. wellness_score  — compute daily target scores
+    3. outcome_tracker — evaluate last week's recommendations
+    4. model_trainer   — train XGBoost model
+    5. stack_optimiser — find optimal targets
+
+    Returns False on graceful skip or failure. Never raises.
     """
-    run_at   = datetime.now(timezone.utc)
-    t_start  = time.perf_counter()
-    stage    = "init"
+    run_at  = datetime.now(timezone.utc)
+    t_start = time.perf_counter()
+    stage   = "init"
 
     def elapsed() -> float:
         return time.perf_counter() - t_start
@@ -144,9 +151,14 @@ def run() -> bool:
         print(f"  Score range : {valid.min():.1f} – {valid.max():.1f}")
         print(f"  Score mean  : {valid.mean():.1f}")
 
-        # ── Stage 3: Model training ──────────────────────────
-        stage = "model_trainer"
+        # ── Stage 3: Outcome evaluation ──────────────────────
+        stage = "outcome_tracker"
         print(f"\n[pipeline] Stage 3 — {stage}")
+        outcome_tracker.evaluate(scores)
+
+        # ── Stage 4: Model training ──────────────────────────
+        stage = "model_trainer"
+        print(f"\n[pipeline] Stage 4 — {stage}")
         train_result = model_trainer.train(df, scores)
 
         if train_result is None:
@@ -154,9 +166,9 @@ def run() -> bool:
             _log(run_at, "skipped", elapsed(), stage, "insufficient data for training")
             return False
 
-        # ── Stage 4: Stack optimisation ──────────────────────
+        # ── Stage 5: Stack optimisation ──────────────────────
         stage = "stack_optimiser"
-        print(f"\n[pipeline] Stage 4 — {stage}")
+        print(f"\n[pipeline] Stage 5 — {stage}")
         rec = stack_optimiser.optimise(df, scores, train_result)
 
         if rec is None:
@@ -177,7 +189,7 @@ def run() -> bool:
     except Exception:
         dur       = elapsed()
         tb        = traceback.format_exc()
-        short_err = tb.strip().splitlines()[-1]   # last line of traceback
+        short_err = tb.strip().splitlines()[-1]
 
         print(f"\n[pipeline] FAILED at stage '{stage}' after {dur:.1f}s",
               file=sys.stderr)
