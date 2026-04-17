@@ -90,20 +90,24 @@ VAR_B_COLS = _flat_cols(VAR_B_TREE)
 def col_label(col):
     return analysis.COL_LABELS.get(col, col)
 
-# Flat radio options: "Nutrition  └  Macros", "Nutrition  └  Fats", …
-def _sub_options(tree):
-    opts = []
-    for key in tree:
-        cat, sub = key.split("  ·  ", 1)
-        opts.append(f"{cat}  └  {sub}")
-    return opts
+A_CATS = ["Nutrition", "Activity"]
+A_SUBS = {
+    "Nutrition": ["Macros", "Fats", "Vitamins", "Minerals", "Amino Acids"],
+    "Activity":  ["Volume", "Intensity", "Zones"],
+}
+B_CATS = ["Sleep", "Cardiovascular"]
+B_SUBS = {
+    "Sleep":          ["Primary", "Architecture", "Behavioural"],
+    "Cardiovascular": ["Heart", "Oxygen", "Respiratory"],
+}
 
-A_SUB_OPTIONS = _sub_options(VAR_A_TREE)   # e.g. ["Nutrition  └  Macros", …]
-B_SUB_OPTIONS = _sub_options(VAR_B_TREE)
-
-def _resolve_group(sub_opt, tree):
-    """'Nutrition  └  Macros' → 'Nutrition  ·  Macros' (the tree key)."""
-    return sub_opt.replace("  └  ", "  ·  ")
+def _picker(panel_id, cats, subs_map, tree, header):
+    """Category → Subcategory → Variable. Returns chosen column name."""
+    st.markdown(f"**{header}**")
+    cat = st.selectbox("", cats,          key=f"{panel_id}_cat", label_visibility="collapsed")
+    sub = st.selectbox("", subs_map[cat], key=f"{panel_id}_sub_{cat}", label_visibility="collapsed")
+    grp = f"{cat}  ·  {sub}"
+    return st.selectbox("", tree[grp],    key=f"{panel_id}_var_{grp}", label_visibility="collapsed")
 
 TREND_METRICS = [
     ("HRV",             "hrv_ms",           "ms",  "bio", True),
@@ -498,27 +502,18 @@ if page == "Experiments":
         if n_active >= 3:
             st.warning("You have 3 active experiments — complete or delete one before adding another.")
         else:
-            # Variable pickers outside the form (reruns needed for radio→selectbox)
+            # Variable pickers outside the form (cascading selectboxes need reruns)
             ec1, ec2 = st.columns(2)
             with ec1:
-                st.markdown("**VARIABLE A — Input / Driver**")
-                st.caption("──────────────────────────────")
-                _ea_sel = st.radio("", A_SUB_OPTIONS, key="exp_a_sub",
-                                   label_visibility="collapsed")
-                _ea_grp = _resolve_group(_ea_sel, VAR_A_TREE)
-                st.selectbox("", VAR_A_TREE[_ea_grp],
-                             key=f"exp_a_var_{_ea_grp}",
-                             label_visibility="collapsed")
-
+                _ea_cat = st.selectbox("VARIABLE A — Input / Driver", A_CATS, key="exp_a_cat")
+                _ea_sub = st.selectbox("", A_SUBS[_ea_cat], key=f"exp_a_sub_{_ea_cat}", label_visibility="collapsed")
+                _ea_grp = f"{_ea_cat}  ·  {_ea_sub}"
+                st.selectbox("", VAR_A_TREE[_ea_grp], key=f"exp_a_var_{_ea_grp}", label_visibility="collapsed")
             with ec2:
-                st.markdown("**VARIABLE B — Output / Target**")
-                st.caption("──────────────────────────────")
-                _eb_sel = st.radio("", B_SUB_OPTIONS, key="exp_b_sub",
-                                   label_visibility="collapsed")
-                _eb_grp = _resolve_group(_eb_sel, VAR_B_TREE)
-                st.selectbox("", VAR_B_TREE[_eb_grp],
-                             key=f"exp_b_var_{_eb_grp}",
-                             label_visibility="collapsed")
+                _eb_cat = st.selectbox("VARIABLE B — Output / Target", B_CATS, key="exp_b_cat")
+                _eb_sub = st.selectbox("", B_SUBS[_eb_cat], key=f"exp_b_sub_{_eb_cat}", label_visibility="collapsed")
+                _eb_grp = f"{_eb_cat}  ·  {_eb_sub}"
+                st.selectbox("", VAR_B_TREE[_eb_grp], key=f"exp_b_var_{_eb_grp}", label_visibility="collapsed")
 
             st.divider()
 
@@ -533,21 +528,19 @@ if page == "Experiments":
                 start  = st.date_input("Start date")
                 submit = st.form_submit_button("Create experiment", type="primary")
                 if submit:
-                    _fa_sel = st.session_state.get("exp_a_sub", A_SUB_OPTIONS[0])
-                    _fa_grp = _resolve_group(_fa_sel, VAR_A_TREE)
-                    _var_a  = st.session_state.get(f"exp_a_var_{_fa_grp}",
-                                                   VAR_A_TREE[_fa_grp][0])
-                    _fb_sel = st.session_state.get("exp_b_sub", B_SUB_OPTIONS[0])
-                    _fb_grp = _resolve_group(_fb_sel, VAR_B_TREE)
-                    _var_b  = st.session_state.get(f"exp_b_var_{_fb_grp}",
-                                                   VAR_B_TREE[_fb_grp][0])
+                    _fa_cat = st.session_state.get("exp_a_cat", A_CATS[0])
+                    _fa_sub = st.session_state.get(f"exp_a_sub_{_fa_cat}", A_SUBS[_fa_cat][0])
+                    _fa_grp = f"{_fa_cat}  ·  {_fa_sub}"
+                    _var_a  = st.session_state.get(f"exp_a_var_{_fa_grp}", VAR_A_TREE[_fa_grp][0])
+                    _fb_cat = st.session_state.get("exp_b_cat", B_CATS[0])
+                    _fb_sub = st.session_state.get(f"exp_b_sub_{_fb_cat}", B_SUBS[_fb_cat][0])
+                    _fb_grp = f"{_fb_cat}  ·  {_fb_sub}"
+                    _var_b  = st.session_state.get(f"exp_b_var_{_fb_grp}", VAR_B_TREE[_fb_grp][0])
                     if not name:
                         st.error("Give the experiment a name.")
                     else:
                         analysis.create_experiment(
-                            name=name,
-                            variable_a=_var_a,
-                            variable_b=_var_b,
+                            name=name, variable_a=_var_a, variable_b=_var_b,
                             lag_days=lag, method=method,
                             start_date=start, duration_days=int(dur),
                         )
@@ -627,50 +620,35 @@ run_clicked = st.sidebar.button("Run Analysis", type="primary", use_container_wi
 
 # ── Main body variable picker ────────────────────────────────
 st.title("Explorer")
-_all_sub_opts = A_SUB_OPTIONS + B_SUB_OPTIONS
-_all_tree     = {**VAR_A_TREE, **VAR_B_TREE}
-
-def _picker(panel_id, sub_options, tree, header):
-    """Single radio (one per side) → variable selectbox. Returns column name."""
-    st.markdown(f"**{header}**")
-    st.caption("──────────────────────────────")
-    sel = st.radio("", sub_options, key=f"{panel_id}_sub",
-                   label_visibility="collapsed")
-    group = _resolve_group(sel, tree)
-    cols  = tree[group]
-    return st.selectbox("", cols, key=f"{panel_id}_var_{group}",
-                        label_visibility="collapsed")
 
 if analysis_type in SINGLE_VAR:
     _cl, _cr = st.columns(2)
     with _cl:
-        var_a = _picker("sv_a", A_SUB_OPTIONS, VAR_A_TREE, "VARIABLE A — Input / Driver")
+        var_a = _picker("sv_a", A_CATS, A_SUBS, VAR_A_TREE, "VARIABLE A — Input / Driver")
     with _cr:
-        _picker("sv_b", B_SUB_OPTIONS, VAR_B_TREE, "VARIABLE B — Output / Target")
+        _picker("sv_b", B_CATS, B_SUBS, VAR_B_TREE, "Or pick an Output variable")
     var_b = predictors = outcome = outcome_label = None
 
 elif analysis_type in MULTI_PRED:
     _cl, _cr = st.columns([3, 2])
     with _cl:
         st.markdown("**VARIABLE A — Input / Driver**")
-        st.caption("──────────────────────────────")
-        _a_sel = st.radio("", A_SUB_OPTIONS, key="ols_a_sub", label_visibility="collapsed")
-        _ag = _resolve_group(_a_sel, VAR_A_TREE)
-        predictors = st.multiselect("", VAR_A_TREE[_ag],
-                                    default=VAR_A_TREE[_ag][:1],
-                                    key=f"ols_preds_{_ag}",
-                                    label_visibility="collapsed")
+        _a_cat = st.selectbox("", A_CATS, key="ols_a_cat", label_visibility="collapsed")
+        _a_sub = st.selectbox("", A_SUBS[_a_cat], key=f"ols_a_sub_{_a_cat}", label_visibility="collapsed")
+        _ag = f"{_a_cat}  ·  {_a_sub}"
+        predictors = st.multiselect("", VAR_A_TREE[_ag], default=VAR_A_TREE[_ag][:1],
+                                    key=f"ols_preds_{_ag}", label_visibility="collapsed")
     with _cr:
-        outcome = _picker("ols_b", B_SUB_OPTIONS, VAR_B_TREE, "VARIABLE B — Output / Target")
+        outcome = _picker("ols_b", B_CATS, B_SUBS, VAR_B_TREE, "VARIABLE B — Output / Target")
     outcome_label = col_label(outcome)
     var_a = var_b = None
 
 else:
     _cl, _cr = st.columns(2)
     with _cl:
-        var_a = _picker("a", A_SUB_OPTIONS, VAR_A_TREE, "VARIABLE A — Input / Driver")
+        var_a = _picker("a", A_CATS, A_SUBS, VAR_A_TREE, "VARIABLE A — Input / Driver")
     with _cr:
-        var_b = _picker("b", B_SUB_OPTIONS, VAR_B_TREE, "VARIABLE B — Output / Target")
+        var_b = _picker("b", B_CATS, B_SUBS, VAR_B_TREE, "VARIABLE B — Output / Target")
     predictors = outcome = outcome_label = None
 
 st.divider()
