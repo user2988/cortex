@@ -201,6 +201,8 @@ st.sidebar.title("Cortex")
 st.sidebar.caption("v2 — personal analytics")
 st.sidebar.divider()
 
+_NAV_OPTIONS = ["Insights", "Experiments", "Explorer"]
+
 if "page" not in st.session_state:
     st.session_state.page = "Insights"
 if "exp_detail_id" not in st.session_state:
@@ -208,8 +210,9 @@ if "exp_detail_id" not in st.session_state:
 if "saved_view_id" not in st.session_state:
     st.session_state.saved_view_id = None
 
-page = st.sidebar.radio("", ["Insights", "Experiments", "Explorer"],
-                         key="page", label_visibility="collapsed")
+_nav_idx = _NAV_OPTIONS.index(st.session_state.page) if st.session_state.page in _NAV_OPTIONS else 0
+page = st.sidebar.radio("", _NAV_OPTIONS, index=_nav_idx, label_visibility="collapsed")
+st.session_state.page = page
 
 if page != "Experiments":
     st.session_state.exp_detail_id = None
