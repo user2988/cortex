@@ -726,7 +726,7 @@ if st.session_state.saved_view_id is not None:
         _sv_a  = _sv["variable_a"]; _sv_b = _sv["variable_b"]
         _sv_lag = int(_sv["lag_days"]) if _sv["lag_days"] else 0
         _sv_atype = _sv["analysis_type"]
-        _sv_cutoff = pd.Timestamp(_sv["calculated_at"]).normalize()
+        _sv_cutoff = pd.Timestamp(_sv["calculated_at"]).tz_localize(None).normalize()
         _sv_al = col_label(_sv_a); _sv_bl = col_label(_sv_b) if _sv_b else None
 
         if st.button("← Back to Explorer"):
