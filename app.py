@@ -803,9 +803,12 @@ if saveable:
     st.divider()
     if st.button("Save to Findings", type="secondary"):
         try:
-            analysis.save_finding(meta["var_a"], meta["var_b"], result["r2"],
-                result["p_value"], result["coefficient"],
-                meta.get("lag", 0) or 0, rtype, result["n"], pinned=True)
+            analysis.save_finding(
+                meta["var_a"], meta["var_b"],
+                float(result["r2"]), float(result["p_value"]),
+                float(result["coefficient"]),
+                int(meta.get("lag", 0) or 0), rtype, int(result["n"]),
+                pinned=True)
             get_findings.clear()
             st.toast("Saved to Findings.", icon="✓")
         except Exception as e:
