@@ -962,8 +962,8 @@ if page == "Recommendations":
     if rec is None:
         st.caption("No recommendations yet.")
         st.markdown(
-            "The ML pipeline runs every **Sunday** and writes personalised activity "
-            "targets based on what your data says actually moves your wellness score. "
+            "The ML pipeline runs every **Sunday** and trains on your nutrition and activity data "
+            "to produce personalised targets based on what actually moves your wellness score. "
             "Check back after the first run."
         )
         st.stop()
