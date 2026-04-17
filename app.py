@@ -640,316 +640,315 @@ if page == "Experiments":
 # EXPLORER PAGE
 # ─────────────────────────────────────────────────────────────
 
-st.sidebar.divider()
-analysis_type = st.sidebar.selectbox("Analysis Type", ANALYSIS_TYPES)
+if page == "Explorer":
+    st.sidebar.divider()
+    analysis_type = st.sidebar.selectbox("Analysis Type", ANALYSIS_TYPES)
 
-days_map   = {"Last 30 days": 30, "Last 60 days": 60, "Last 90 days": 90, "All data": 0}
-days_label = st.sidebar.selectbox("Data Range", list(days_map.keys()), index=3)
-days       = days_map[days_label]
-df         = get_data(days)
+    days_map   = {"Last 30 days": 30, "Last 60 days": 60, "Last 90 days": 90, "All data": 0}
+    days_label = st.sidebar.selectbox("Data Range", list(days_map.keys()), index=3)
+    days       = days_map[days_label]
+    df         = get_data(days)
 
-n_bio = df[analysis.BIOMETRIC_COLS].dropna(how="all").shape[0]
-n_nut = df[analysis.NUTRITION_COLS].dropna(how="all").shape[0]
-date_range = (f"{df.index.min().date()} → {df.index.max().date()}" if len(df) else "—")
-st.sidebar.caption(f"**{n_bio}** biometric · **{n_nut}** nutrition days  \n{date_range}")
-st.sidebar.divider()
+    n_bio = df[analysis.BIOMETRIC_COLS].dropna(how="all").shape[0]
+    n_nut = df[analysis.NUTRITION_COLS].dropna(how="all").shape[0]
+    date_range = (f"{df.index.min().date()} → {df.index.max().date()}" if len(df) else "—")
+    st.sidebar.caption(f"**{n_bio}** biometric · **{n_nut}** nutrition days  \n{date_range}")
+    st.sidebar.divider()
 
-# Analysis-specific settings stay in sidebar
-if   analysis_type == "Lagged Correlation": lag = st.sidebar.selectbox("Lag (days)", [0,1,2,3], index=1); corr_method = st.sidebar.radio("Method", ["Pearson","Spearman"], horizontal=True).lower()
-elif analysis_type == "Rolling Average":    window = st.sidebar.selectbox("Window (days)", [7,14]); corr_method = st.sidebar.radio("Method", ["Pearson","Spearman"], horizontal=True).lower()
-elif analysis_type == "Decomposition":      period = st.sidebar.selectbox("Period (days)", [7, 14, 30])
-elif analysis_type == "Anomaly Detection":  window = st.sidebar.slider("Baseline window", 14, 60, 30); threshold = st.sidebar.slider("Threshold (SD)", 1.0, 3.0, 1.5, 0.1)
+    if   analysis_type == "Lagged Correlation": lag = st.sidebar.selectbox("Lag (days)", [0,1,2,3], index=1); corr_method = st.sidebar.radio("Method", ["Pearson","Spearman"], horizontal=True).lower()
+    elif analysis_type == "Rolling Average":    window = st.sidebar.selectbox("Window (days)", [7,14]); corr_method = st.sidebar.radio("Method", ["Pearson","Spearman"], horizontal=True).lower()
+    elif analysis_type == "Decomposition":      period = st.sidebar.selectbox("Period (days)", [7, 14, 30])
+    elif analysis_type == "Anomaly Detection":  window = st.sidebar.slider("Baseline window", 14, 60, 30); threshold = st.sidebar.slider("Threshold (SD)", 1.0, 3.0, 1.5, 0.1)
 
-run_clicked = st.sidebar.button("Run Analysis", type="primary", use_container_width=True)
+    run_clicked = st.sidebar.button("Run Analysis", type="primary", use_container_width=True)
 
-# ── Main body variable picker ────────────────────────────────
-st.title("Explorer")
+    st.title("Explorer")
 
-if analysis_type in SINGLE_VAR:
-    _cl, _cr = st.columns(2)
-    with _cl:
-        var_a = _picker("sv_a", A_CATS, A_SUBS, VAR_A_TREE, "VARIABLE A — Input / Driver")
-    with _cr:
-        _picker("sv_b", B_CATS, B_SUBS, VAR_B_TREE, "Or pick an Output variable")
-    var_b = predictors = outcome = outcome_label = None
+    if analysis_type in SINGLE_VAR:
+        _cl, _cr = st.columns(2)
+        with _cl:
+            var_a = _picker("sv_a", A_CATS, A_SUBS, VAR_A_TREE, "VARIABLE A — Input / Driver")
+        with _cr:
+            _picker("sv_b", B_CATS, B_SUBS, VAR_B_TREE, "Or pick an Output variable")
+        var_b = predictors = outcome = outcome_label = None
 
-elif analysis_type in MULTI_PRED:
-    _cl, _cr = st.columns([3, 2])
-    with _cl:
-        st.markdown("**VARIABLE A — Input / Driver**")
-        _a_cat = st.selectbox("", A_CATS, key="ols_a_cat", label_visibility="collapsed")
-        _a_sub = st.selectbox("", A_SUBS[_a_cat], key=f"ols_a_sub_{_a_cat}", label_visibility="collapsed")
-        _ag = f"{_a_cat}  ·  {_a_sub}"
-        predictors = st.multiselect("", VAR_A_TREE[_ag], default=VAR_A_TREE[_ag][:1],
-                                    key=f"ols_preds_{_ag}", label_visibility="collapsed")
-    with _cr:
-        outcome = _picker("ols_b", B_CATS, B_SUBS, VAR_B_TREE, "VARIABLE B — Output / Target")
-    outcome_label = col_label(outcome)
-    var_a = var_b = None
+    elif analysis_type in MULTI_PRED:
+        _cl, _cr = st.columns([3, 2])
+        with _cl:
+            st.markdown("**VARIABLE A — Input / Driver**")
+            _a_cat = st.selectbox("", A_CATS, key="ols_a_cat", label_visibility="collapsed")
+            _a_sub = st.selectbox("", A_SUBS[_a_cat], key=f"ols_a_sub_{_a_cat}", label_visibility="collapsed")
+            _ag = f"{_a_cat}  ·  {_a_sub}"
+            predictors = st.multiselect("", VAR_A_TREE[_ag], default=VAR_A_TREE[_ag][:1],
+                                        key=f"ols_preds_{_ag}", label_visibility="collapsed")
+        with _cr:
+            outcome = _picker("ols_b", B_CATS, B_SUBS, VAR_B_TREE, "VARIABLE B — Output / Target")
+        outcome_label = col_label(outcome)
+        var_a = var_b = None
 
-else:
-    _cl, _cr = st.columns(2)
-    with _cl:
-        var_a = _picker("a", A_CATS, A_SUBS, VAR_A_TREE, "VARIABLE A — Input / Driver")
-    with _cr:
-        var_b = _picker("b", B_CATS, B_SUBS, VAR_B_TREE, "VARIABLE B — Output / Target")
-    predictors = outcome = outcome_label = None
-
-st.divider()
-
-if "result" not in st.session_state:
-    st.session_state.result = None; st.session_state.result_type = None; st.session_state.result_meta = {}
-
-if run_clicked:
-    st.session_state.saved_view_id = None   # clear any saved view
-    with st.spinner("Running…"):
-        if   analysis_type == "Pearson Correlation":     res = analysis.pearson_correlation(df, var_a, var_b)
-        elif analysis_type == "Spearman Correlation":    res = analysis.spearman_correlation(df, var_a, var_b)
-        elif analysis_type == "Lagged Correlation":      res = analysis.lagged_correlation(df, var_a, var_b, lag, corr_method)
-        elif analysis_type == "Rolling Average":         res = analysis.rolling_avg_correlation(df, var_a, var_b, window, corr_method)
-        elif analysis_type == "30-Day Trend (OLS)":      res = analysis.ols_trend(df, var_a)
-        elif analysis_type == "Multiple OLS Regression": res = analysis.multiple_ols(df, predictors, outcome)
-        elif analysis_type == "Anomaly Detection":       res = analysis.anomaly_detection(df, var_a, window, threshold)
-        elif analysis_type == "Forecast (7-Day)":        res = analysis.forecast(df, var_a)
-        elif analysis_type == "Decomposition":           res = analysis.decompose(df, var_a, period)
-        else: res = {"error": "Unknown analysis type"}
-    st.session_state.result = res; st.session_state.result_type = analysis_type
-    st.session_state.result_meta = {
-        "var_a": var_a, "var_b": var_b,
-        "var_a_label": col_label(var_a) if var_a else None,
-        "var_b_label": col_label(var_b) if var_b else None,
-        "analysis_type": analysis_type,
-        "lag": locals().get("lag", 0), "window": locals().get("window"),
-        "period": locals().get("period"), "threshold": locals().get("threshold"),
-        "predictors": locals().get("predictors"), "outcome": locals().get("outcome"),
-        "outcome_label": col_label(outcome) if locals().get("outcome") else None,
-    }
-
-# ── Saved Analyses ───────────────────────────────────────────
-_saved = get_findings()
-_saved = _saved[_saved["pinned"].astype(bool)] if not _saved.empty else pd.DataFrame()
-
-if not _saved.empty:
-    st.markdown("#### Saved Analyses")
-    for _, srow in _saved.iterrows():
-        sid = int(srow["id"])
-        s_a = srow["variable_a"]; s_b = srow["variable_b"]
-        s_r2 = float(srow["r_squared"]) if srow["r_squared"] is not None else 0
-        s_atype = srow["analysis_type"]
-        s_date  = pd.Timestamp(srow["calculated_at"]).strftime("%Y-%m-%d")
-        s_name  = f"{s_a} → {s_b}" if s_b else s_a
-
-        with st.container(border=True):
-            rc1, rc2, rc3 = st.columns([5, 2, 2])
-            rc1.markdown(f"**{s_name}**  \n{s_atype} · {s_date}")
-            rc2.metric("R²", f"{s_r2:.3f}")
-            bc1, bc2 = rc3.columns(2)
-            if bc1.button("View", key=f"sv_view_{sid}"):
-                st.session_state.saved_view_id = sid
-                st.session_state.result = None
-                st.rerun()
-            if bc2.button("✕", key=f"sv_del_{sid}"):
-                analysis.delete_finding(sid)
-                get_findings.clear()
-                if st.session_state.saved_view_id == sid:
-                    st.session_state.saved_view_id = None
-                st.rerun()
-    st.divider()
-
-# ── Saved analysis replay ─────────────────────────────────────
-if st.session_state.saved_view_id is not None:
-    _sv_row = _saved[_saved["id"] == st.session_state.saved_view_id]
-    if _sv_row.empty:
-        st.session_state.saved_view_id = None
     else:
-        _sv = _sv_row.iloc[0]
-        _sv_a  = _sv["variable_a"]; _sv_b = _sv["variable_b"]
-        _sv_lag = int(_sv["lag_days"]) if _sv["lag_days"] else 0
-        _sv_atype = _sv["analysis_type"]
-        _sv_cutoff = pd.Timestamp(_sv["calculated_at"]).tz_localize(None).normalize()
-        _sv_al = col_label(_sv_a); _sv_bl = col_label(_sv_b) if _sv_b else None
+        _cl, _cr = st.columns(2)
+        with _cl:
+            var_a = _picker("a", A_CATS, A_SUBS, VAR_A_TREE, "VARIABLE A — Input / Driver")
+        with _cr:
+            var_b = _picker("b", B_CATS, B_SUBS, VAR_B_TREE, "VARIABLE B — Output / Target")
+        predictors = outcome = outcome_label = None
 
-        if st.button("← Back to Explorer"):
-            st.session_state.saved_view_id = None
-            st.rerun()
-
-        st.markdown(f"### {_sv_a} {'→ ' + _sv_b if _sv_b else ''}  \n"
-                    f"<span style='opacity:0.6'>{_sv_atype} · saved {_sv_cutoff.strftime('%Y-%m-%d')}</span>",
-                    unsafe_allow_html=True)
-
-        _hist = get_data(0)
-        _hist = _hist[_hist.index <= _sv_cutoff]
-
-        with st.spinner("Reconstructing…"):
-            if   _sv_atype == "Pearson Correlation":  _sr = analysis.pearson_correlation(_hist, _sv_a, _sv_b)
-            elif _sv_atype == "Spearman Correlation": _sr = analysis.spearman_correlation(_hist, _sv_a, _sv_b)
-            elif _sv_atype == "Lagged Correlation":   _sr = analysis.lagged_correlation(_hist, _sv_a, _sv_b, _sv_lag)
-            elif _sv_atype == "30-Day Trend (OLS)":   _sr = analysis.ols_trend(_hist, _sv_a)
-            elif _sv_atype == "Rolling Average":       _sr = analysis.rolling_avg_correlation(_hist, _sv_a, _sv_b, 7)
-            else: _sr = {"error": f"Chart replay not supported for {_sv_atype}"}
-
-        if "error" in _sr:
-            st.warning(_sr["error"])
-        else:
-            stat_bar(_sr.get("r2"), _sr.get("p_value"), _sr.get("coefficient"), _sr.get("n"), _sr.get("label"))
-            if _sv_atype in ("Pearson Correlation", "Spearman Correlation"):
-                st.plotly_chart(scatter_ols(_sr["series_a"], _sr["series_b"],
-                    _sr["coefficient"], _sr["intercept"], _sv_al, _sv_bl), use_container_width=True)
-            elif _sv_atype == "Lagged Correlation":
-                st.plotly_chart(scatter_ols(_sr["series_a"], _sr["series_b"],
-                    _sr["coefficient"], _sr["intercept"],
-                    f"{_sv_al} (day 0)", f"{_sv_bl} (+{_sv_lag}d)"), use_container_width=True)
-            elif _sv_atype == "30-Day Trend (OLS)":
-                _fig = go.Figure()
-                _fig.add_trace(go.Scatter(x=_sr["series"].index, y=_sr["series"].values,
-                    mode="lines+markers", name=_sv_al, line=dict(color=BLUE), marker=dict(size=5)))
-                _fig.add_trace(go.Scatter(x=_sr["fitted"].index, y=_sr["fitted"].values,
-                    mode="lines", name="Trend", line=dict(color=GREEN, dash="dash", width=2)))
-                _fig.update_layout(xaxis_title="Date", yaxis_title=_sv_al, height=450, margin=dict(t=20))
-                st.plotly_chart(_fig, use_container_width=True)
-            elif _sv_atype == "Rolling Average":
-                _fig = make_subplots(specs=[[{"secondary_y": True}]])
-                _fig.add_trace(go.Scatter(x=_sr["series_a"].index, y=_sr["series_a"].values,
-                    name=_sv_al, line=dict(color=BLUE)), secondary_y=False)
-                _fig.add_trace(go.Scatter(x=_sr["series_b"].index, y=_sr["series_b"].values,
-                    name=_sv_bl, line=dict(color=ORANGE)), secondary_y=True)
-                _fig.update_layout(height=450, margin=dict(t=20))
-                st.plotly_chart(_fig, use_container_width=True)
-        st.stop()
-
-result = st.session_state.result; rtype = st.session_state.result_type; meta = st.session_state.result_meta
-
-if result is None:
-    st.info("Configure your analysis in the sidebar and click **Run Analysis**.")
-    st.stop()
-if "error" in result:
-    st.error(result["error"]); st.stop()
-
-if   rtype in MULTI_PRED:  title = f"Multiple OLS — {meta['outcome_label']}"
-elif rtype in SINGLE_VAR:  title = f"{rtype} — {meta['var_a_label']}"
-else:
-    title = f"{meta['var_a_label']}  ×  {meta['var_b_label']}"
-    if rtype == "Lagged Correlation" and meta["lag"]: title += f"  (lag {meta['lag']}d)"
-    elif rtype == "Rolling Average": title += f"  ({meta['window']}-day rolling)"
-st.title(title)
-
-if rtype in ("Pearson Correlation", "Spearman Correlation"):
-    stat_bar(result["r2"], result["p_value"], result["coefficient"], result["n"], result["label"])
-    st.plotly_chart(scatter_ols(result["series_a"], result["series_b"], result["coefficient"],
-        result["intercept"], meta["var_a_label"], meta["var_b_label"]), use_container_width=True)
-
-elif rtype == "Lagged Correlation":
-    stat_bar(result["r2"], result["p_value"], result["coefficient"], result["n"], result["label"])
-    st.plotly_chart(scatter_ols(result["series_a"], result["series_b"], result["coefficient"],
-        result["intercept"], f"{meta['var_a_label']} (day 0)",
-        f"{meta['var_b_label']} (+{meta['lag']}d)"), use_container_width=True)
-
-elif rtype == "Rolling Average":
-    stat_bar(result["r2"], result["p_value"], result["coefficient"], result["n"], result["label"])
-    a, b = result["series_a"], result["series_b"]
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
-    fig.add_trace(go.Scatter(x=a.index, y=a.values, name=meta["var_a_label"], line=dict(color=BLUE)), secondary_y=False)
-    fig.add_trace(go.Scatter(x=b.index, y=b.values, name=meta["var_b_label"], line=dict(color=ORANGE)), secondary_y=True)
-    fig.update_layout(height=450, margin=dict(t=20), legend=dict(orientation="h", y=1.08))
-    st.plotly_chart(fig, use_container_width=True)
-
-elif rtype == "30-Day Trend (OLS)":
-    coef = result["coefficient"]
-    stat_bar(result["r2"], result["p_value"], coef, result["n"], result["label"],
-             extra=[("↑↓ per day", f"{coef:+.4f}")])
-    series, fitted = result["series"], result["fitted"]
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=series.index, y=series.values, mode="lines+markers",
-                             name=meta["var_a_label"], line=dict(color=BLUE), marker=dict(size=5)))
-    fig.add_trace(go.Scatter(x=fitted.index, y=fitted.values, mode="lines", name="Trend",
-                             line=dict(color=GREEN, dash="dash", width=2)))
-    fig.update_layout(xaxis_title="Date", yaxis_title=meta["var_a_label"],
-                      height=450, margin=dict(t=20), legend=dict(orientation="h", y=1.08))
-    st.plotly_chart(fig, use_container_width=True)
-
-elif rtype == "Multiple OLS Regression":
-    stat_bar(r2=result["r2"], p=result["p_value"], n=result["n"],
-             extra=[("R² adj", f"{result['r2_adj']:.4f}")])
-    mn = min(float(result["actual"].min()), float(result["fitted"].min()))
-    mx = max(float(result["actual"].max()), float(result["fitted"].max()))
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=result["actual"].values, y=result["fitted"].values, mode="markers",
-                             marker=dict(color=BLUE, size=7, opacity=0.8),
-                             hovertemplate="Actual: %{x:.2f}<br>Predicted: %{y:.2f}<extra></extra>"))
-    fig.add_trace(go.Scatter(x=[mn,mx], y=[mn,mx], mode="lines",
-                             line=dict(color=GREEN, dash="dash"), showlegend=False))
-    ol = meta["outcome_label"]
-    fig.update_layout(xaxis_title=f"Actual {ol}", yaxis_title=f"Predicted {ol}", height=450, margin=dict(t=20))
-    st.plotly_chart(fig, use_container_width=True)
-    st.subheader("Coefficients")
-    pl = [col_label(p) for p in meta["predictors"]]
-    st.dataframe(pd.DataFrame({"Variable": pl,
-        "Coefficient": [result["coefficients"][p] for p in meta["predictors"]],
-        "p-value":     [result["p_values"][p]     for p in meta["predictors"]],
-        "Significant": ["✓" if result["p_values"][p] < 0.05 else "✗" for p in meta["predictors"]],
-    }), use_container_width=True, hide_index=True)
-
-elif rtype == "Anomaly Detection":
-    series, anom = result["series"], result["anomalies"]
-    st.metric("Anomalies", f"{result['n_anomalies']} days")
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=series.index, y=series.values, mode="lines",
-                             name=meta["var_a_label"], line=dict(color=BLUE)))
-    fig.add_trace(go.Scatter(x=result["rolling_mean"].index, y=result["rolling_mean"].values,
-                             mode="lines", name="Baseline", line=dict(color=GREEN, dash="dot")))
-    if anom.any():
-        fig.add_trace(go.Scatter(x=series[anom].index, y=series[anom].values, mode="markers",
-                                 name="Anomaly", text=series[anom].index.strftime("%Y-%m-%d"),
-                                 hovertemplate="%{text}: %{y:.2f}<extra></extra>",
-                                 marker=dict(color=RED, size=11, symbol="circle-open", line=dict(width=2))))
-    fig.update_layout(xaxis_title="Date", yaxis_title=meta["var_a_label"],
-                      height=450, margin=dict(t=20), legend=dict(orientation="h", y=1.08))
-    st.plotly_chart(fig, use_container_width=True)
-
-elif rtype == "Forecast (7-Day)":
-    series = result["series"]; fc = result["forecast"]
-    proj = fc[~fc["ds"].isin(series.index)]
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=series.index, y=series.values, mode="lines+markers",
-                             name="Historical", line=dict(color=BLUE), marker=dict(size=4)))
-    fig.add_trace(go.Scatter(x=proj["ds"], y=proj["yhat"], mode="lines+markers",
-                             name="Forecast", line=dict(color=ORANGE, dash="dash"), marker=dict(size=6)))
-    fig.add_trace(go.Scatter(
-        x=list(proj["ds"]) + list(proj["ds"])[::-1],
-        y=list(proj["yhat_upper"]) + list(proj["yhat_lower"])[::-1],
-        fill="toself", fillcolor="rgba(255,127,14,0.15)",
-        line=dict(color="rgba(0,0,0,0)"), name="Confidence"))
-    fig.update_layout(xaxis_title="Date", yaxis_title=meta["var_a_label"],
-                      height=450, margin=dict(t=20), legend=dict(orientation="h", y=1.08))
-    st.plotly_chart(fig, use_container_width=True)
-
-elif rtype == "Decomposition":
-    components = [("Observed", result["observed"], BLUE), ("Trend", result["trend"], GREEN),
-                  ("Seasonal", result["seasonal"], ORANGE), ("Residual", result["residual"], RED)]
-    fig = make_subplots(rows=4, cols=1, shared_xaxes=True,
-                        subplot_titles=[c[0] for c in components], vertical_spacing=0.07)
-    for i, (_, s, color) in enumerate(components, 1):
-        fig.add_trace(go.Scatter(x=s.index, y=s.values, mode="lines",
-                                 line=dict(color=color), showlegend=False), row=i, col=1)
-    fig.update_layout(height=800, margin=dict(t=40))
-    st.plotly_chart(fig, use_container_width=True)
-
-# Save to Findings
-saveable = rtype not in ("Anomaly Detection","Forecast (7-Day)","Decomposition","Multiple OLS Regression")
-if saveable:
     st.divider()
-    if st.button("Save to Findings", type="secondary"):
-        try:
-            analysis.save_finding(
-                meta["var_a"], meta["var_b"],
-                float(result["r2"]), float(result["p_value"]),
-                float(result["coefficient"]),
-                int(meta.get("lag", 0) or 0), rtype, int(result["n"]),
-                pinned=True)
-            get_findings.clear()
-            st.toast("Saved to Findings.", icon="✅")
-        except Exception as e:
-            st.error(f"Save failed: {e}")
+
+    if "result" not in st.session_state:
+        st.session_state.result = None; st.session_state.result_type = None; st.session_state.result_meta = {}
+
+    if run_clicked:
+        st.session_state.saved_view_id = None
+        with st.spinner("Running…"):
+            if   analysis_type == "Pearson Correlation":     res = analysis.pearson_correlation(df, var_a, var_b)
+            elif analysis_type == "Spearman Correlation":    res = analysis.spearman_correlation(df, var_a, var_b)
+            elif analysis_type == "Lagged Correlation":      res = analysis.lagged_correlation(df, var_a, var_b, lag, corr_method)
+            elif analysis_type == "Rolling Average":         res = analysis.rolling_avg_correlation(df, var_a, var_b, window, corr_method)
+            elif analysis_type == "30-Day Trend (OLS)":      res = analysis.ols_trend(df, var_a)
+            elif analysis_type == "Multiple OLS Regression": res = analysis.multiple_ols(df, predictors, outcome)
+            elif analysis_type == "Anomaly Detection":       res = analysis.anomaly_detection(df, var_a, window, threshold)
+            elif analysis_type == "Forecast (7-Day)":        res = analysis.forecast(df, var_a)
+            elif analysis_type == "Decomposition":           res = analysis.decompose(df, var_a, period)
+            else: res = {"error": "Unknown analysis type"}
+        st.session_state.result = res; st.session_state.result_type = analysis_type
+        st.session_state.result_meta = {
+            "var_a": var_a, "var_b": var_b,
+            "var_a_label": col_label(var_a) if var_a else None,
+            "var_b_label": col_label(var_b) if var_b else None,
+            "analysis_type": analysis_type,
+            "lag": locals().get("lag", 0), "window": locals().get("window"),
+            "period": locals().get("period"), "threshold": locals().get("threshold"),
+            "predictors": locals().get("predictors"), "outcome": locals().get("outcome"),
+            "outcome_label": col_label(outcome) if locals().get("outcome") else None,
+        }
+
+    # ── Saved Analyses ───────────────────────────────────────────
+    _saved = get_findings()
+    _saved = _saved[_saved["pinned"].astype(bool)] if not _saved.empty else pd.DataFrame()
+
+    if not _saved.empty:
+        st.markdown("#### Saved Analyses")
+        for _, srow in _saved.iterrows():
+            sid = int(srow["id"])
+            s_a = srow["variable_a"]; s_b = srow["variable_b"]
+            s_r2 = float(srow["r_squared"]) if srow["r_squared"] is not None else 0
+            s_atype = srow["analysis_type"]
+            s_date  = pd.Timestamp(srow["calculated_at"]).strftime("%Y-%m-%d")
+            s_name  = f"{s_a} → {s_b}" if s_b else s_a
+
+            with st.container(border=True):
+                rc1, rc2, rc3 = st.columns([5, 2, 2])
+                rc1.markdown(f"**{s_name}**  \n{s_atype} · {s_date}")
+                rc2.metric("R²", f"{s_r2:.3f}")
+                bc1, bc2 = rc3.columns(2)
+                if bc1.button("View", key=f"sv_view_{sid}"):
+                    st.session_state.saved_view_id = sid
+                    st.session_state.result = None
+                    st.rerun()
+                if bc2.button("✕", key=f"sv_del_{sid}"):
+                    analysis.delete_finding(sid)
+                    get_findings.clear()
+                    if st.session_state.saved_view_id == sid:
+                        st.session_state.saved_view_id = None
+                    st.rerun()
+        st.divider()
+
+    # ── Saved analysis replay ─────────────────────────────────────
+    if st.session_state.saved_view_id is not None:
+        _sv_row = _saved[_saved["id"] == st.session_state.saved_view_id]
+        if _sv_row.empty:
+            st.session_state.saved_view_id = None
+        else:
+            _sv = _sv_row.iloc[0]
+            _sv_a  = _sv["variable_a"]; _sv_b = _sv["variable_b"]
+            _sv_lag = int(_sv["lag_days"]) if _sv["lag_days"] else 0
+            _sv_atype = _sv["analysis_type"]
+            _sv_cutoff = pd.Timestamp(_sv["calculated_at"]).tz_localize(None).normalize()
+            _sv_al = col_label(_sv_a); _sv_bl = col_label(_sv_b) if _sv_b else None
+
+            if st.button("← Back to Explorer"):
+                st.session_state.saved_view_id = None
+                st.rerun()
+
+            st.markdown(f"### {_sv_a} {'→ ' + _sv_b if _sv_b else ''}  \n"
+                        f"<span style='opacity:0.6'>{_sv_atype} · saved {_sv_cutoff.strftime('%Y-%m-%d')}</span>",
+                        unsafe_allow_html=True)
+
+            _hist = get_data(0)
+            _hist = _hist[_hist.index <= _sv_cutoff]
+
+            with st.spinner("Reconstructing…"):
+                if   _sv_atype == "Pearson Correlation":  _sr = analysis.pearson_correlation(_hist, _sv_a, _sv_b)
+                elif _sv_atype == "Spearman Correlation": _sr = analysis.spearman_correlation(_hist, _sv_a, _sv_b)
+                elif _sv_atype == "Lagged Correlation":   _sr = analysis.lagged_correlation(_hist, _sv_a, _sv_b, _sv_lag)
+                elif _sv_atype == "30-Day Trend (OLS)":   _sr = analysis.ols_trend(_hist, _sv_a)
+                elif _sv_atype == "Rolling Average":       _sr = analysis.rolling_avg_correlation(_hist, _sv_a, _sv_b, 7)
+                else: _sr = {"error": f"Chart replay not supported for {_sv_atype}"}
+
+            if "error" in _sr:
+                st.warning(_sr["error"])
+            else:
+                stat_bar(_sr.get("r2"), _sr.get("p_value"), _sr.get("coefficient"), _sr.get("n"), _sr.get("label"))
+                if _sv_atype in ("Pearson Correlation", "Spearman Correlation"):
+                    st.plotly_chart(scatter_ols(_sr["series_a"], _sr["series_b"],
+                        _sr["coefficient"], _sr["intercept"], _sv_al, _sv_bl), use_container_width=True)
+                elif _sv_atype == "Lagged Correlation":
+                    st.plotly_chart(scatter_ols(_sr["series_a"], _sr["series_b"],
+                        _sr["coefficient"], _sr["intercept"],
+                        f"{_sv_al} (day 0)", f"{_sv_bl} (+{_sv_lag}d)"), use_container_width=True)
+                elif _sv_atype == "30-Day Trend (OLS)":
+                    _fig = go.Figure()
+                    _fig.add_trace(go.Scatter(x=_sr["series"].index, y=_sr["series"].values,
+                        mode="lines+markers", name=_sv_al, line=dict(color=BLUE), marker=dict(size=5)))
+                    _fig.add_trace(go.Scatter(x=_sr["fitted"].index, y=_sr["fitted"].values,
+                        mode="lines", name="Trend", line=dict(color=GREEN, dash="dash", width=2)))
+                    _fig.update_layout(xaxis_title="Date", yaxis_title=_sv_al, height=450, margin=dict(t=20))
+                    st.plotly_chart(_fig, use_container_width=True)
+                elif _sv_atype == "Rolling Average":
+                    _fig = make_subplots(specs=[[{"secondary_y": True}]])
+                    _fig.add_trace(go.Scatter(x=_sr["series_a"].index, y=_sr["series_a"].values,
+                        name=_sv_al, line=dict(color=BLUE)), secondary_y=False)
+                    _fig.add_trace(go.Scatter(x=_sr["series_b"].index, y=_sr["series_b"].values,
+                        name=_sv_bl, line=dict(color=ORANGE)), secondary_y=True)
+                    _fig.update_layout(height=450, margin=dict(t=20))
+                    st.plotly_chart(_fig, use_container_width=True)
+            st.stop()
+
+    result = st.session_state.result; rtype = st.session_state.result_type; meta = st.session_state.result_meta
+
+    if result is None:
+        st.info("Configure your analysis in the sidebar and click **Run Analysis**.")
+        st.stop()
+    if "error" in result:
+        st.error(result["error"]); st.stop()
+
+    if   rtype in MULTI_PRED:  title = f"Multiple OLS — {meta['outcome_label']}"
+    elif rtype in SINGLE_VAR:  title = f"{rtype} — {meta['var_a_label']}"
+    else:
+        title = f"{meta['var_a_label']}  ×  {meta['var_b_label']}"
+        if rtype == "Lagged Correlation" and meta["lag"]: title += f"  (lag {meta['lag']}d)"
+        elif rtype == "Rolling Average": title += f"  ({meta['window']}-day rolling)"
+    st.title(title)
+
+    if rtype in ("Pearson Correlation", "Spearman Correlation"):
+        stat_bar(result["r2"], result["p_value"], result["coefficient"], result["n"], result["label"])
+        st.plotly_chart(scatter_ols(result["series_a"], result["series_b"], result["coefficient"],
+            result["intercept"], meta["var_a_label"], meta["var_b_label"]), use_container_width=True)
+
+    elif rtype == "Lagged Correlation":
+        stat_bar(result["r2"], result["p_value"], result["coefficient"], result["n"], result["label"])
+        st.plotly_chart(scatter_ols(result["series_a"], result["series_b"], result["coefficient"],
+            result["intercept"], f"{meta['var_a_label']} (day 0)",
+            f"{meta['var_b_label']} (+{meta['lag']}d)"), use_container_width=True)
+
+    elif rtype == "Rolling Average":
+        stat_bar(result["r2"], result["p_value"], result["coefficient"], result["n"], result["label"])
+        a, b = result["series_a"], result["series_b"]
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        fig.add_trace(go.Scatter(x=a.index, y=a.values, name=meta["var_a_label"], line=dict(color=BLUE)), secondary_y=False)
+        fig.add_trace(go.Scatter(x=b.index, y=b.values, name=meta["var_b_label"], line=dict(color=ORANGE)), secondary_y=True)
+        fig.update_layout(height=450, margin=dict(t=20), legend=dict(orientation="h", y=1.08))
+        st.plotly_chart(fig, use_container_width=True)
+
+    elif rtype == "30-Day Trend (OLS)":
+        coef = result["coefficient"]
+        stat_bar(result["r2"], result["p_value"], coef, result["n"], result["label"],
+                 extra=[("↑↓ per day", f"{coef:+.4f}")])
+        series, fitted = result["series"], result["fitted"]
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=series.index, y=series.values, mode="lines+markers",
+                                 name=meta["var_a_label"], line=dict(color=BLUE), marker=dict(size=5)))
+        fig.add_trace(go.Scatter(x=fitted.index, y=fitted.values, mode="lines", name="Trend",
+                                 line=dict(color=GREEN, dash="dash", width=2)))
+        fig.update_layout(xaxis_title="Date", yaxis_title=meta["var_a_label"],
+                          height=450, margin=dict(t=20), legend=dict(orientation="h", y=1.08))
+        st.plotly_chart(fig, use_container_width=True)
+
+    elif rtype == "Multiple OLS Regression":
+        stat_bar(r2=result["r2"], p=result["p_value"], n=result["n"],
+                 extra=[("R² adj", f"{result['r2_adj']:.4f}")])
+        mn = min(float(result["actual"].min()), float(result["fitted"].min()))
+        mx = max(float(result["actual"].max()), float(result["fitted"].max()))
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=result["actual"].values, y=result["fitted"].values, mode="markers",
+                                 marker=dict(color=BLUE, size=7, opacity=0.8),
+                                 hovertemplate="Actual: %{x:.2f}<br>Predicted: %{y:.2f}<extra></extra>"))
+        fig.add_trace(go.Scatter(x=[mn,mx], y=[mn,mx], mode="lines",
+                                 line=dict(color=GREEN, dash="dash"), showlegend=False))
+        ol = meta["outcome_label"]
+        fig.update_layout(xaxis_title=f"Actual {ol}", yaxis_title=f"Predicted {ol}", height=450, margin=dict(t=20))
+        st.plotly_chart(fig, use_container_width=True)
+        st.subheader("Coefficients")
+        pl = [col_label(p) for p in meta["predictors"]]
+        st.dataframe(pd.DataFrame({"Variable": pl,
+            "Coefficient": [result["coefficients"][p] for p in meta["predictors"]],
+            "p-value":     [result["p_values"][p]     for p in meta["predictors"]],
+            "Significant": ["✓" if result["p_values"][p] < 0.05 else "✗" for p in meta["predictors"]],
+        }), use_container_width=True, hide_index=True)
+
+    elif rtype == "Anomaly Detection":
+        series, anom = result["series"], result["anomalies"]
+        st.metric("Anomalies", f"{result['n_anomalies']} days")
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=series.index, y=series.values, mode="lines",
+                                 name=meta["var_a_label"], line=dict(color=BLUE)))
+        fig.add_trace(go.Scatter(x=result["rolling_mean"].index, y=result["rolling_mean"].values,
+                                 mode="lines", name="Baseline", line=dict(color=GREEN, dash="dot")))
+        if anom.any():
+            fig.add_trace(go.Scatter(x=series[anom].index, y=series[anom].values, mode="markers",
+                                     name="Anomaly", text=series[anom].index.strftime("%Y-%m-%d"),
+                                     hovertemplate="%{text}: %{y:.2f}<extra></extra>",
+                                     marker=dict(color=RED, size=11, symbol="circle-open", line=dict(width=2))))
+        fig.update_layout(xaxis_title="Date", yaxis_title=meta["var_a_label"],
+                          height=450, margin=dict(t=20), legend=dict(orientation="h", y=1.08))
+        st.plotly_chart(fig, use_container_width=True)
+
+    elif rtype == "Forecast (7-Day)":
+        series = result["series"]; fc = result["forecast"]
+        proj = fc[~fc["ds"].isin(series.index)]
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=series.index, y=series.values, mode="lines+markers",
+                                 name="Historical", line=dict(color=BLUE), marker=dict(size=4)))
+        fig.add_trace(go.Scatter(x=proj["ds"], y=proj["yhat"], mode="lines+markers",
+                                 name="Forecast", line=dict(color=ORANGE, dash="dash"), marker=dict(size=6)))
+        fig.add_trace(go.Scatter(
+            x=list(proj["ds"]) + list(proj["ds"])[::-1],
+            y=list(proj["yhat_upper"]) + list(proj["yhat_lower"])[::-1],
+            fill="toself", fillcolor="rgba(255,127,14,0.15)",
+            line=dict(color="rgba(0,0,0,0)"), name="Confidence"))
+        fig.update_layout(xaxis_title="Date", yaxis_title=meta["var_a_label"],
+                          height=450, margin=dict(t=20), legend=dict(orientation="h", y=1.08))
+        st.plotly_chart(fig, use_container_width=True)
+
+    elif rtype == "Decomposition":
+        components = [("Observed", result["observed"], BLUE), ("Trend", result["trend"], GREEN),
+                      ("Seasonal", result["seasonal"], ORANGE), ("Residual", result["residual"], RED)]
+        fig = make_subplots(rows=4, cols=1, shared_xaxes=True,
+                            subplot_titles=[c[0] for c in components], vertical_spacing=0.07)
+        for i, (_, s, color) in enumerate(components, 1):
+            fig.add_trace(go.Scatter(x=s.index, y=s.values, mode="lines",
+                                     line=dict(color=color), showlegend=False), row=i, col=1)
+        fig.update_layout(height=800, margin=dict(t=40))
+        st.plotly_chart(fig, use_container_width=True)
+
+    # Save to Findings
+    saveable = rtype not in ("Anomaly Detection","Forecast (7-Day)","Decomposition","Multiple OLS Regression")
+    if saveable:
+        st.divider()
+        if st.button("Save to Findings", type="secondary"):
+            try:
+                analysis.save_finding(
+                    meta["var_a"], meta["var_b"],
+                    float(result["r2"]), float(result["p_value"]),
+                    float(result["coefficient"]),
+                    int(meta.get("lag", 0) or 0), rtype, int(result["n"]),
+                    pinned=True)
+                get_findings.clear()
+                st.toast("Saved to Findings.", icon="✅")
+            except Exception as e:
+                st.error(f"Save failed: {e}")
 
 # ─────────────────────────────────────────────────────────────
 # RECOMMENDATIONS PAGE
