@@ -191,16 +191,20 @@ def get_ml_outcomes():
                     SELECT o.evaluated_at, o.wellness_before_avg,
                            o.wellness_after_avg, o.wellness_delta,
                            o.predicted_delta, o.n_days_before, o.n_days_after,
-                           r.run_at
+                           o.adherence, r.run_at
                     FROM ml_recommendation_outcomes o
                     JOIN ml_recommendations r ON r.id = o.recommendation_id
                     ORDER BY r.run_at DESC
                     LIMIT 12
                 """)
                 cols = [d[0] for d in cur.description]
-                return [dict(zip(cols, row)) for row in cur.fetchall()]
+                rows = [dict(zip(cols, row)) for row in cur.fetchall()]
         finally:
             conn.close()
+        for r in rows:
+            if isinstance(r.get("adherence"), str):
+                r["adherence"] = json.loads(r["adherence"])
+        return rows
     except Exception:
         return []
 
@@ -1109,26 +1113,49 @@ if page == "Recommendations":
         st.divider()
         st.markdown("#### Outcome History")
         st.caption(
-            "7-day wellness average before vs. after each weekly recommendation. "
-            "Reflects what actually happened — not whether you followed the protocol."
+            "7-day wellness before vs. after each recommendation, "
+            "plus how closely your actual nutrition and activity tracked the targets."
         )
+
+        ADHERENCE_COLOR = {"high": GREEN, "moderate": ORANGE, "low": RED}
+        ADHERENCE_LABEL = {"high": "High adherence", "moderate": "Partial adherence",
+                           "low": "Low adherence", "n/a": "—", "insufficient_data": "—"}
+        STATUS_ICON = {"followed": "✓", "partial": "~", "ignored": "✗"}
+
         for o in outcomes:
             rec_date   = pd.Timestamp(o["run_at"]).strftime("%-d %b %Y")
             before     = o["wellness_before_avg"]
             after      = o["wellness_after_avg"]
             delta      = o["wellness_delta"]
             pred_delta = o["predicted_delta"]
+            adherence  = o.get("adherence") or {}
+            overall    = adherence.get("overall", "—")
 
             if before is None or after is None:
                 continue
 
-            delta_color = "normal" if delta >= 0 else "inverse"
+            delta_color = "normal" if float(delta) >= 0 else "inverse"
+
             with st.container(border=True):
-                c1, c2, c3, c4 = st.columns(4)
+                c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 1])
                 c1.markdown(f"**Week of {rec_date}**")
                 c2.metric("Before", f"{float(before):.1f}")
-                c3.metric("After",  f"{float(after):.1f}",
+                c3.metric("After", f"{float(after):.1f}",
                           delta=f"{float(delta):+.1f}", delta_color=delta_color)
                 if pred_delta is not None:
-                    c4.metric("Model predicted", f"{float(pred_delta):+.1f}",
-                              delta_color="off")
+                    c4.metric("Predicted", f"{float(pred_delta):+.1f}", delta_color="off")
+                c5.metric("Adherence", ADHERENCE_LABEL.get(overall, overall))
+
+                # Per-metric adherence breakdown
+                metrics = adherence.get("metrics", [])
+                if metrics:
+                    with st.expander("Metric breakdown"):
+                        for m in metrics:
+                            icon  = STATUS_ICON.get(m["status"], "?")
+                            label = analysis.COL_LABELS.get(m["metric"], m["metric"])
+                            st.caption(
+                                f"{icon} **{label}** — "
+                                f"target {m['target']:,.1f}  ·  "
+                                f"actual {m['actual']:,.1f}  ·  "
+                                f"baseline {m['baseline']:,.1f}"
+                            )
