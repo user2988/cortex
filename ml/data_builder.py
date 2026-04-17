@@ -100,7 +100,9 @@ SLOW_MICRONUTRIENTS = [
 ]
 
 # Maximum fraction of feature columns that may be null before a row is dropped.
-MAX_NULL_FRACTION = 0.50
+MAX_NULL_FRACTION    = 0.50
+SPARSE_COL_THRESHOLD = 0.70   # drop feature columns missing in >70 % of rows
+CORRELATION_THRESHOLD = 0.95  # drop one of any pair correlated above this
 
 
 # ─────────────────────────────────────────────────────────────
@@ -208,6 +210,65 @@ def _impute_medians(df: pd.DataFrame) -> pd.DataFrame:
     return df.fillna(medians)
 
 
+def _drop_sparse_cols(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
+    """
+    Drop feature columns that are missing in more than SPARSE_COL_THRESHOLD
+    of rows.
+
+    Columns logged infrequently (many trace minerals, rare amino acids) add
+    noise and consume feature slots without contributing signal. Output
+    columns are never dropped.
+    """
+    present = [c for c in feature_cols if c in df.columns]
+    null_frac = df[present].isna().mean()
+    to_drop = null_frac[null_frac > SPARSE_COL_THRESHOLD].index.tolist()
+    if to_drop:
+        print(f"  [data_builder] Dropped {len(to_drop)} sparse columns (>{SPARSE_COL_THRESHOLD:.0%} nulls): "
+              f"{[c.replace('_lag1','') for c in to_drop]}")
+        df = df.drop(columns=to_drop)
+    return df
+
+
+def _drop_correlated_cols(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
+    """
+    Drop redundant feature columns where |r| > CORRELATION_THRESHOLD with
+    another feature column.
+
+    Highly correlated features (e.g. amino acids that track protein 1:1)
+    dilute feature importance scores and slow training without adding
+    independent information. When two columns are correlated above the
+    threshold, the one with more non-null values is kept.
+    """
+    present = [c for c in feature_cols if c in df.columns]
+    if len(present) < 2:
+        return df
+
+    corr = df[present].corr().abs()
+    upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+
+    to_drop = set()
+    for col in upper.columns:
+        if col in to_drop:
+            continue
+        partners = upper.index[upper[col] > CORRELATION_THRESHOLD].tolist()
+        for partner in partners:
+            if partner in to_drop:
+                continue
+            # Keep whichever has more non-null values
+            if df[col].notna().sum() >= df[partner].notna().sum():
+                to_drop.add(partner)
+            else:
+                to_drop.add(col)
+                break
+
+    if to_drop:
+        print(f"  [data_builder] Dropped {len(to_drop)} correlated columns "
+              f"(|r|>{CORRELATION_THRESHOLD}): "
+              f"{[c.replace('_lag1','') for c in sorted(to_drop)]}")
+        df = df.drop(columns=list(to_drop))
+    return df
+
+
 # ─────────────────────────────────────────────────────────────
 # PUBLIC INTERFACE
 # ─────────────────────────────────────────────────────────────
@@ -222,7 +283,9 @@ def build() -> pd.DataFrame:
         3. Lag all nutrition columns by 1 day
         4. Lag all activity columns by 1 day
         5. Drop rows with >50 % missing feature values
-        6. Impute remaining nulls with column medians
+        6. Drop feature columns missing in >70 % of rows
+        7. Drop one of any feature pair with |r| > 0.95
+        8. Impute remaining nulls with column medians
 
     Returns
     -------
@@ -254,6 +317,10 @@ def build() -> pd.DataFrame:
     feature_cols = [c for c in df.columns if c not in OUTPUT_COLS]
 
     df = _drop_sparse_rows(df, feature_cols)
+    df = _drop_sparse_cols(df, feature_cols)
+    feature_cols = [c for c in df.columns if c not in OUTPUT_COLS]
+    df = _drop_correlated_cols(df, feature_cols)
+    feature_cols = [c for c in df.columns if c not in OUTPUT_COLS]
     df = _impute_medians(df)
 
     print(f"  Clean rows : {len(df)}")
