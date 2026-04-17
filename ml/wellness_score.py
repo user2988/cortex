@@ -7,9 +7,11 @@ This is the target variable the XGBoost model learns to predict.
 Design principles
 -----------------
 - Only sleep and cardiovascular output metrics contribute to the score.
-- Each metric is normalised to the user's own personal min/max range so
-  the score reflects *relative improvement for that individual*, not
-  population averages.
+- Scores are ENTIRELY PERSONAL. Normalisation uses the individual's own
+  historical min/max range — no population references, age norms, or
+  demographic benchmarks are used. A score of 80 means "near the top of
+  *your* range", not "better than 80% of people your age". This means
+  the score becomes more meaningful and stable as more data accumulates.
 - Metrics where lower is better are inverted before scoring.
 - If a metric column is missing from the DataFrame entirely, its weight
   is redistributed proportionally across the remaining metrics.
@@ -28,15 +30,19 @@ import pandas as pd
 # Base weights — must sum to 1.0.
 # Cardiovascular 54 % / Sleep 46 %.
 # hrv_ms carries the most weight as the primary recovery signal.
+# hrv_deep_rmssd weighted slightly higher than hrv_ms — measured during
+# deep sleep only, so it is the cleaner of the two signals.
+# vo2_max excluded — updates too infrequently to contribute day-to-day signal.
+# spo2_min_pct weighted above spo2_avg_pct — the floor reading is the more
+# clinically meaningful number (catches nocturnal dips the average obscures).
 WELLNESS_WEIGHTS: dict[str, float] = {
     # Cardiovascular
-    "hrv_ms":               0.20,
-    "hrv_deep_rmssd":       0.10,
+    "hrv_ms":               0.18,
+    "hrv_deep_rmssd":       0.12,
     "rhr_bpm":              0.08,   # lower is better
+    "spo2_min_pct":         0.07,
     "spo2_avg_pct":         0.05,
-    "spo2_min_pct":         0.05,
-    "respiratory_rate":     0.03,   # lower is better
-    "vo2_max":              0.03,
+    "respiratory_rate":     0.04,   # lower is better
     # Sleep
     "sleep_efficiency_pct": 0.15,
     "deep_sleep_min":       0.12,
