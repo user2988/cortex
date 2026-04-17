@@ -801,12 +801,12 @@ elif rtype == "Decomposition":
 saveable = rtype not in ("Anomaly Detection","Forecast (7-Day)","Decomposition","Multiple OLS Regression")
 if saveable:
     st.divider()
-    c1, c2 = st.columns([1, 4])
-    if c1.button("Save to Findings", type="secondary"):
+    if st.button("Save to Findings", type="secondary"):
         try:
             analysis.save_finding(meta["var_a"], meta["var_b"], result["r2"],
                 result["p_value"], result["coefficient"],
                 meta.get("lag", 0) or 0, rtype, result["n"], pinned=True)
-            c2.success("Saved.")
+            get_findings.clear()
+            st.toast("Saved to Findings.", icon="✓")
         except Exception as e:
-            c2.error(f"Save failed: {e}")
+            st.error(f"Save failed: {e}")
