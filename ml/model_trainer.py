@@ -227,22 +227,11 @@ def train(df: pd.DataFrame, scores: pd.Series) -> dict | None:
         print(f"  Keep logging — model training begins after {TIER_INSUFFICIENT} days.")
         return None
 
-    # Sample weights — experiment rows count half as much as baseline rows
-    if "in_experiment" in X.columns:
-        weights = np.where(X["in_experiment"] == 1, 0.5, 1.0)
-    else:
-        weights = np.ones(len(X))
-
     X_train, X_test, y_train, y_test = _split(X, y)
-    w_train = weights[:len(X_train)]
-    n_exp_train = int((w_train < 1.0).sum())
-    if n_exp_train:
-        print(f"  Experiment rows in train set : {n_exp_train} (0.5× weight)")
 
     model = _build_model()
     model.fit(
         X_train, y_train,
-        sample_weight=w_train,
         eval_set=[(X_test, y_test)],
         verbose=False,
     )
