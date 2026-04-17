@@ -137,6 +137,19 @@ def _exp_opts(tree):
 EXP_A_OPTIONS = _exp_opts(VAR_A_TREE)   # label → col
 EXP_B_OPTIONS = _exp_opts(VAR_B_TREE)
 
+# Category → subcategory lookup (for the hierarchical picker)
+A_CAT_SUBS = {
+    "Nutrition": ["Macros", "Fats", "Micronutrients", "Amino Acids"],
+    "Activity":  ["Volume", "Intensity", "Zones"],
+}
+B_CAT_SUBS = {
+    "Sleep":          ["Primary", "Architecture", "Behavioural"],
+    "Cardiovascular": ["Heart", "Oxygen", "Respiratory"],
+}
+
+def _pick_cat(ss_key, cat):
+    st.session_state[ss_key] = cat
+
 TREND_METRICS = [
     ("HRV",             "hrv_ms",           "ms",  "bio", True),
     ("RHR",             "rhr_bpm",          "bpm", "bio", False),
@@ -630,43 +643,79 @@ run_clicked = st.sidebar.button("Run Analysis", type="primary", use_container_wi
 
 # ── Main body variable picker ────────────────────────────────
 st.title("Explorer")
-_combined_tree = {**VAR_A_TREE, **VAR_B_TREE}
+_all_tree = {**VAR_A_TREE, **VAR_B_TREE}
+_all_cat_subs = {**A_CAT_SUBS, **B_CAT_SUBS}
+
+def _var_panel(panel_id, cat_subs, tree, header):
+    """Render category→subcategory radios + variable selectbox.
+    Returns the chosen column name."""
+    ss_cat = f"{panel_id}_cat"
+    if ss_cat not in st.session_state:
+        st.session_state[ss_cat] = list(cat_subs.keys())[0]
+
+    st.markdown(f"**{header}**")
+    for cat, subs in cat_subs.items():
+        st.markdown(f"<span style='font-size:0.85em;opacity:0.7'>{cat}</span>",
+                    unsafe_allow_html=True)
+        st.radio("", subs, key=f"{panel_id}_sub_{cat}",
+                 label_visibility="collapsed",
+                 on_change=_pick_cat, args=(ss_cat, cat))
+
+    act_cat = st.session_state[ss_cat]
+    act_sub = st.session_state.get(f"{panel_id}_sub_{act_cat}",
+                                   list(cat_subs[act_cat])[0])
+    group = f"{act_cat}  ·  {act_sub}"
+    if group not in tree:
+        group = list(tree.keys())[0]
+    st.caption(f"Showing: {act_cat} · {act_sub}")
+    col = st.selectbox("", list(tree[group].keys()),
+                       format_func=lambda c: tree[group][c],
+                       key=f"{panel_id}_var_{group}",
+                       label_visibility="collapsed")
+    return col
 
 if analysis_type in SINGLE_VAR:
-    _sv_group = st.selectbox("", list(_combined_tree.keys()), key="sv_group", label_visibility="collapsed")
-    var_a = st.selectbox("", list(_combined_tree[_sv_group].keys()),
-                         format_func=lambda c: _combined_tree[_sv_group][c],
-                         key=f"sv_var_{_sv_group}", label_visibility="collapsed")
+    _cl, _cr = st.columns(2)
+    with _cl:
+        var_a = _var_panel("sv_a", A_CAT_SUBS, VAR_A_TREE, "Variable (Input)")
+    with _cr:
+        _var_panel("sv_b", B_CAT_SUBS, VAR_B_TREE, "Or pick an Output")
+        # for single-var, only var_a is used; show B side for context only
     var_b = predictors = outcome = outcome_label = None
 
 elif analysis_type in MULTI_PRED:
     _cl, _cr = st.columns([3, 2])
-    _ag = _cl.selectbox("Predictor group", list(VAR_A_TREE.keys()), key="ols_a_group")
-    predictors = _cl.multiselect("Predictors (A)", list(VAR_A_TREE[_ag].keys()),
-                                 default=list(VAR_A_TREE[_ag].keys())[:1],
-                                 format_func=lambda c: VAR_A_TREE[_ag][c],
-                                 key=f"ols_preds_{_ag}")
-    _bg = _cr.selectbox("Outcome group", list(VAR_B_TREE.keys()), key="ols_b_group")
-    outcome = _cr.selectbox("Outcome (B)", list(VAR_B_TREE[_bg].keys()),
-                            format_func=lambda c: VAR_B_TREE[_bg][c],
-                            key=f"ols_b_var_{_bg}")
+    with _cl:
+        ss_cat = "ols_a_cat"
+        if ss_cat not in st.session_state:
+            st.session_state[ss_cat] = "Nutrition"
+        st.markdown("**Predictors — what you're testing**")
+        for cat, subs in A_CAT_SUBS.items():
+            st.markdown(f"<span style='font-size:0.85em;opacity:0.7'>{cat}</span>",
+                        unsafe_allow_html=True)
+            st.radio("", subs, key=f"ols_a_sub_{cat}",
+                     label_visibility="collapsed",
+                     on_change=_pick_cat, args=(ss_cat, cat))
+        _act = st.session_state[ss_cat]
+        _sub = st.session_state.get(f"ols_a_sub_{_act}", A_CAT_SUBS[_act][0])
+        _ag = f"{_act}  ·  {_sub}"
+        st.caption(f"Showing: {_act} · {_sub}")
+        predictors = st.multiselect("", list(VAR_A_TREE[_ag].keys()),
+                                    default=list(VAR_A_TREE[_ag].keys())[:1],
+                                    format_func=lambda c: VAR_A_TREE[_ag][c],
+                                    key=f"ols_preds_{_ag}",
+                                    label_visibility="collapsed")
+    with _cr:
+        outcome = _var_panel("ols_b", B_CAT_SUBS, VAR_B_TREE, "Outcome — what you're measuring")
     outcome_label = col_label(outcome)
     var_a = var_b = None
 
 else:
     _cl, _cr = st.columns(2)
     with _cl:
-        st.markdown("**Variable A** — what you're testing")
-        _ag = st.selectbox("", list(VAR_A_TREE.keys()), key="a_group", label_visibility="collapsed")
-        var_a = st.selectbox("", list(VAR_A_TREE[_ag].keys()),
-                             format_func=lambda c: VAR_A_TREE[_ag][c],
-                             key=f"a_var_{_ag}", label_visibility="collapsed")
+        var_a = _var_panel("a", A_CAT_SUBS, VAR_A_TREE, "Variable A — what you're testing")
     with _cr:
-        st.markdown("**Variable B** — what you're measuring")
-        _bg = st.selectbox("", list(VAR_B_TREE.keys()), key="b_group", label_visibility="collapsed")
-        var_b = st.selectbox("", list(VAR_B_TREE[_bg].keys()),
-                             format_func=lambda c: VAR_B_TREE[_bg][c],
-                             key=f"b_var_{_bg}", label_visibility="collapsed")
+        var_b = _var_panel("b", B_CAT_SUBS, VAR_B_TREE, "Variable B — what you're measuring")
     predictors = outcome = outcome_label = None
 
 st.divider()
