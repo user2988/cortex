@@ -35,120 +35,75 @@ SINGLE_VAR = {"30-Day Trend (OLS)", "Anomaly Detection", "Forecast (7-Day)", "De
 MULTI_PRED = {"Multiple OLS Regression"}
 
 # ── Variable taxonomy ────────────────────────────────────────
-# VAR_A: inputs/drivers (nutrition, activity)
-# VAR_B: outputs/targets (sleep, cardiovascular)
+# Keys: "Category  ·  Subcategory"  Values: list of column names (shown raw)
 
 VAR_A_TREE = {
-    "Nutrition  ·  Macros": {
-        "calories_in": "Calories In", "protein_g": "Protein",
-        "carbs_g": "Carbohydrates", "fat_g": "Total Fat",
-        "fibre_g": "Fibre", "sugar_g": "Sugar", "water_ml": "Water",
-    },
-    "Nutrition  ·  Fats": {
-        "saturated_fat_g": "Saturated Fat", "monounsaturated_fat_g": "Monounsaturated Fat",
-        "polyunsaturated_fat_g": "Polyunsaturated Fat", "trans_fat_g": "Trans Fat",
-        "cholesterol_mg": "Cholesterol", "omega3_mg": "Omega-3",
-        "omega6_mg": "Omega-6", "ala_mg": "ALA", "epa_mg": "EPA", "dha_mg": "DHA",
-    },
-    "Nutrition  ·  Micronutrients": {
-        "vitamin_a_mcg": "Vitamin A", "vitamin_d_iu": "Vitamin D",
-        "vitamin_e_mg": "Vitamin E", "vitamin_k_mcg": "Vitamin K",
-        "vitamin_c_mg": "Vitamin C", "thiamine_mg": "Thiamine (B1)",
-        "riboflavin_mg": "Riboflavin (B2)", "niacin_mg": "Niacin (B3)",
-        "pantothenic_acid_mg": "Pantothenic Acid (B5)", "vitamin_b6_mg": "Vitamin B6",
-        "biotin_mcg": "Biotin (B7)", "folate_mcg": "Folate (B9)",
-        "vitamin_b12_mcg": "Vitamin B12", "calcium_mg": "Calcium",
-        "iron_mg": "Iron", "magnesium_mg": "Magnesium", "phosphorus_mg": "Phosphorus",
-        "potassium_mg": "Potassium", "zinc_mg": "Zinc", "selenium_mcg": "Selenium",
-        "copper_mg": "Copper", "manganese_mg": "Manganese",
-        "chromium_mcg": "Chromium", "iodine_mcg": "Iodine", "molybdenum_mcg": "Molybdenum",
-    },
-    "Nutrition  ·  Amino Acids": {
-        "tryptophan_g": "Tryptophan", "threonine_g": "Threonine",
-        "isoleucine_g": "Isoleucine", "leucine_g": "Leucine",
-        "lysine_g": "Lysine", "methionine_g": "Methionine",
-        "phenylalanine_g": "Phenylalanine", "valine_g": "Valine",
-        "histidine_g": "Histidine", "alanine_g": "Alanine",
-        "arginine_g": "Arginine", "aspartic_acid_g": "Aspartic Acid",
-        "cystine_g": "Cystine", "glutamic_acid_g": "Glutamic Acid",
-        "glycine_g": "Glycine", "proline_g": "Proline", "serine_g": "Serine",
-        "tyrosine_g": "Tyrosine", "hydroxyproline_g": "Hydroxyproline",
-    },
-    "Activity  ·  Volume": {
-        "steps": "Steps", "distance_km": "Distance",
-        "calories_burned": "Calories Burned", "sedentary_min": "Sedentary Time",
-        "lightly_active_min": "Lightly Active",
-    },
-    "Activity  ·  Intensity": {
-        "active_zone_min": "Active Zone Minutes",
-        "very_active_min": "Very Active", "fairly_active_min": "Fairly Active",
-    },
-    "Activity  ·  Zones": {
-        "time_in_fat_burn_min": "Fat Burn Zone",
-        "time_in_cardio_min": "Cardio Zone", "time_in_peak_min": "Peak Zone",
-    },
+    "Nutrition  ·  Macros":      ["calories_in", "protein_g", "carbs_g", "fat_g",
+                                   "fibre_g", "sugar_g", "water_ml"],
+    "Nutrition  ·  Fats":        ["saturated_fat_g", "monounsaturated_fat_g",
+                                   "polyunsaturated_fat_g", "trans_fat_g",
+                                   "cholesterol_mg", "omega3_mg", "omega6_mg",
+                                   "ala_mg", "epa_mg", "dha_mg"],
+    "Nutrition  ·  Vitamins":    ["vitamin_a_mcg", "vitamin_b6_mg", "vitamin_b12_mcg",
+                                   "vitamin_c_mg", "vitamin_d_iu", "vitamin_e_mg",
+                                   "vitamin_k_mcg", "folate_mcg", "biotin_mcg",
+                                   "thiamine_mg", "riboflavin_mg", "niacin_mg",
+                                   "pantothenic_acid_mg"],
+    "Nutrition  ·  Minerals":    ["magnesium_mg", "zinc_mg", "iron_mg", "calcium_mg",
+                                   "potassium_mg", "sodium_mg", "selenium_mcg",
+                                   "copper_mg", "manganese_mg", "chromium_mcg",
+                                   "iodine_mcg", "molybdenum_mcg", "phosphorus_mg"],
+    "Nutrition  ·  Amino Acids": ["tryptophan_g", "leucine_g", "lysine_g",
+                                   "arginine_g", "glutamic_acid_g", "glycine_g",
+                                   "threonine_g", "isoleucine_g", "methionine_g",
+                                   "phenylalanine_g", "valine_g", "histidine_g",
+                                   "alanine_g", "aspartic_acid_g", "cystine_g",
+                                   "proline_g", "serine_g", "tyrosine_g",
+                                   "hydroxyproline_g"],
+    "Activity  ·  Volume":       ["steps", "distance_km", "calories_burned",
+                                   "sedentary_min", "lightly_active_min"],
+    "Activity  ·  Intensity":    ["active_zone_min", "very_active_min",
+                                   "fairly_active_min"],
+    "Activity  ·  Zones":        ["time_in_fat_burn_min", "time_in_cardio_min",
+                                   "time_in_peak_min"],
 }
 
 VAR_B_TREE = {
-    "Sleep  ·  Primary": {
-        "sleep_efficiency_pct": "Sleep Efficiency",
-        "sleep_duration_min": "Sleep Duration",
-    },
-    "Sleep  ·  Architecture": {
-        "deep_sleep_min": "Deep Sleep", "rem_sleep_min": "REM Sleep",
-        "light_sleep_min": "Light Sleep", "awake_min": "Awake Time",
-    },
-    "Sleep  ·  Behavioural": {
-        "time_in_bed_min": "Time in Bed",
-    },
-    "Cardiovascular  ·  Heart": {
-        "hrv_ms": "HRV RMSSD", "hrv_deep_rmssd": "HRV Deep RMSSD",
-        "rhr_bpm": "Resting Heart Rate",
-    },
-    "Cardiovascular  ·  Oxygen": {
-        "spo2_avg_pct": "SpO2 Average",
-        "spo2_min_pct": "SpO2 Minimum", "spo2_max_pct": "SpO2 Maximum",
-    },
-    "Cardiovascular  ·  Respiratory": {
-        "respiratory_rate": "Respiratory Rate", "vo2_max": "VO2 Max",
-    },
+    "Sleep  ·  Primary":              ["sleep_efficiency_pct", "sleep_duration_min"],
+    "Sleep  ·  Architecture":         ["deep_sleep_min", "rem_sleep_min",
+                                        "light_sleep_min", "awake_min"],
+    "Sleep  ·  Behavioural":          ["time_in_bed_min"],
+    "Cardiovascular  ·  Heart":       ["hrv_ms", "hrv_deep_rmssd", "rhr_bpm"],
+    "Cardiovascular  ·  Oxygen":      ["spo2_avg_pct", "spo2_min_pct", "spo2_max_pct"],
+    "Cardiovascular  ·  Respiratory": ["respiratory_rate", "vo2_max"],
 }
 
-def _flat(tree):
-    out = {}
-    for d in tree.values(): out.update(d)
+def _flat_cols(tree):
+    """All column names across a tree."""
+    out = []
+    for cols in tree.values(): out.extend(cols)
     return out
 
-VAR_A_FLAT = _flat(VAR_A_TREE)   # col → short label
-VAR_B_FLAT = _flat(VAR_B_TREE)
-VAR_ALL_FLAT = {**VAR_A_FLAT, **VAR_B_FLAT}
+VAR_A_COLS = _flat_cols(VAR_A_TREE)
+VAR_B_COLS = _flat_cols(VAR_B_TREE)
 
 def col_label(col):
-    return VAR_ALL_FLAT.get(col, analysis.COL_LABELS.get(col, col))
+    return analysis.COL_LABELS.get(col, col)
 
-def _exp_opts(tree):
-    out = {}
-    for grp, vars_d in tree.items():
-        sub = grp.split("  ·  ", 1)[-1]
-        for col, name in vars_d.items():
-            out[f"{sub}  ·  {name}"] = col
-    return out
+# Flat radio options: "Nutrition  └  Macros", "Nutrition  └  Fats", …
+def _sub_options(tree):
+    opts = []
+    for key in tree:
+        cat, sub = key.split("  ·  ", 1)
+        opts.append(f"{cat}  └  {sub}")
+    return opts
 
-EXP_A_OPTIONS = _exp_opts(VAR_A_TREE)   # label → col
-EXP_B_OPTIONS = _exp_opts(VAR_B_TREE)
+A_SUB_OPTIONS = _sub_options(VAR_A_TREE)   # e.g. ["Nutrition  └  Macros", …]
+B_SUB_OPTIONS = _sub_options(VAR_B_TREE)
 
-# Category → subcategory lookup (for the hierarchical picker)
-A_CAT_SUBS = {
-    "Nutrition": ["Macros", "Fats", "Micronutrients", "Amino Acids"],
-    "Activity":  ["Volume", "Intensity", "Zones"],
-}
-B_CAT_SUBS = {
-    "Sleep":          ["Primary", "Architecture", "Behavioural"],
-    "Cardiovascular": ["Heart", "Oxygen", "Respiratory"],
-}
-
-def _pick_cat(ss_key, cat):
-    st.session_state[ss_key] = cat
+def _resolve_group(sub_opt, tree):
+    """'Nutrition  └  Macros' → 'Nutrition  ·  Macros' (the tree key)."""
+    return sub_opt.replace("  └  ", "  ·  ")
 
 TREND_METRICS = [
     ("HRV",             "hrv_ms",           "ms",  "bio", True),
@@ -543,43 +498,27 @@ if page == "Experiments":
         if n_active >= 3:
             st.warning("You have 3 active experiments — complete or delete one before adding another.")
         else:
-            # Variable pickers OUTSIDE the form so category→subcategory reruns work
+            # Variable pickers outside the form (reruns needed for radio→selectbox)
             ec1, ec2 = st.columns(2)
             with ec1:
-                st.markdown("**Variable A** — what you're testing")
-                if "exp_a_cat" not in st.session_state:
-                    st.session_state.exp_a_cat = "Nutrition"
-                for cat, subs in A_CAT_SUBS.items():
-                    st.markdown(f"<span style='font-size:0.85em;opacity:0.7'>{cat}</span>",
-                                unsafe_allow_html=True)
-                    st.radio("", subs, key=f"exp_a_sub_{cat}",
-                             label_visibility="collapsed",
-                             on_change=_pick_cat, args=("exp_a_cat", cat))
-                _ea_cat = st.session_state.exp_a_cat
-                _ea_sub = st.session_state.get(f"exp_a_sub_{_ea_cat}", A_CAT_SUBS[_ea_cat][0])
-                _ea_grp = f"{_ea_cat}  ·  {_ea_sub}"
-                st.caption(f"Showing: {_ea_cat} · {_ea_sub}")
-                st.selectbox("", list(VAR_A_TREE[_ea_grp].keys()),
-                             format_func=lambda c: VAR_A_TREE[_ea_grp][c],
-                             key=f"exp_a_var_{_ea_grp}", label_visibility="collapsed")
+                st.markdown("**VARIABLE A — Input / Driver**")
+                st.caption("──────────────────────────────")
+                _ea_sel = st.radio("", A_SUB_OPTIONS, key="exp_a_sub",
+                                   label_visibility="collapsed")
+                _ea_grp = _resolve_group(_ea_sel, VAR_A_TREE)
+                st.selectbox("", VAR_A_TREE[_ea_grp],
+                             key=f"exp_a_var_{_ea_grp}",
+                             label_visibility="collapsed")
 
             with ec2:
-                st.markdown("**Variable B** — what you're measuring")
-                if "exp_b_cat" not in st.session_state:
-                    st.session_state.exp_b_cat = "Sleep"
-                for cat, subs in B_CAT_SUBS.items():
-                    st.markdown(f"<span style='font-size:0.85em;opacity:0.7'>{cat}</span>",
-                                unsafe_allow_html=True)
-                    st.radio("", subs, key=f"exp_b_sub_{cat}",
-                             label_visibility="collapsed",
-                             on_change=_pick_cat, args=("exp_b_cat", cat))
-                _eb_cat = st.session_state.exp_b_cat
-                _eb_sub = st.session_state.get(f"exp_b_sub_{_eb_cat}", B_CAT_SUBS[_eb_cat][0])
-                _eb_grp = f"{_eb_cat}  ·  {_eb_sub}"
-                st.caption(f"Showing: {_eb_cat} · {_eb_sub}")
-                st.selectbox("", list(VAR_B_TREE[_eb_grp].keys()),
-                             format_func=lambda c: VAR_B_TREE[_eb_grp][c],
-                             key=f"exp_b_var_{_eb_grp}", label_visibility="collapsed")
+                st.markdown("**VARIABLE B — Output / Target**")
+                st.caption("──────────────────────────────")
+                _eb_sel = st.radio("", B_SUB_OPTIONS, key="exp_b_sub",
+                                   label_visibility="collapsed")
+                _eb_grp = _resolve_group(_eb_sel, VAR_B_TREE)
+                st.selectbox("", VAR_B_TREE[_eb_grp],
+                             key=f"exp_b_var_{_eb_grp}",
+                             label_visibility="collapsed")
 
             st.divider()
 
@@ -594,19 +533,14 @@ if page == "Experiments":
                 start  = st.date_input("Start date")
                 submit = st.form_submit_button("Create experiment", type="primary")
                 if submit:
-                    # Read variable selections from session state
-                    _fa_cat = st.session_state.get("exp_a_cat", "Nutrition")
-                    _fa_sub = st.session_state.get(f"exp_a_sub_{_fa_cat}", A_CAT_SUBS[_fa_cat][0])
-                    _fa_grp = f"{_fa_cat}  ·  {_fa_sub}"
+                    _fa_sel = st.session_state.get("exp_a_sub", A_SUB_OPTIONS[0])
+                    _fa_grp = _resolve_group(_fa_sel, VAR_A_TREE)
                     _var_a  = st.session_state.get(f"exp_a_var_{_fa_grp}",
-                                                   list(VAR_A_TREE[_fa_grp].keys())[0])
-
-                    _fb_cat = st.session_state.get("exp_b_cat", "Sleep")
-                    _fb_sub = st.session_state.get(f"exp_b_sub_{_fb_cat}", B_CAT_SUBS[_fb_cat][0])
-                    _fb_grp = f"{_fb_cat}  ·  {_fb_sub}"
+                                                   VAR_A_TREE[_fa_grp][0])
+                    _fb_sel = st.session_state.get("exp_b_sub", B_SUB_OPTIONS[0])
+                    _fb_grp = _resolve_group(_fb_sel, VAR_B_TREE)
                     _var_b  = st.session_state.get(f"exp_b_var_{_fb_grp}",
-                                                   list(VAR_B_TREE[_fb_grp].keys())[0])
-
+                                                   VAR_B_TREE[_fb_grp][0])
                     if not name:
                         st.error("Give the experiment a name.")
                     else:
@@ -693,79 +627,50 @@ run_clicked = st.sidebar.button("Run Analysis", type="primary", use_container_wi
 
 # ── Main body variable picker ────────────────────────────────
 st.title("Explorer")
-_all_tree = {**VAR_A_TREE, **VAR_B_TREE}
-_all_cat_subs = {**A_CAT_SUBS, **B_CAT_SUBS}
+_all_sub_opts = A_SUB_OPTIONS + B_SUB_OPTIONS
+_all_tree     = {**VAR_A_TREE, **VAR_B_TREE}
 
-def _var_panel(panel_id, cat_subs, tree, header):
-    """Render category→subcategory radios + variable selectbox.
-    Returns the chosen column name."""
-    ss_cat = f"{panel_id}_cat"
-    if ss_cat not in st.session_state:
-        st.session_state[ss_cat] = list(cat_subs.keys())[0]
-
+def _picker(panel_id, sub_options, tree, header):
+    """Single radio (one per side) → variable selectbox. Returns column name."""
     st.markdown(f"**{header}**")
-    for cat, subs in cat_subs.items():
-        st.markdown(f"<span style='font-size:0.85em;opacity:0.7'>{cat}</span>",
-                    unsafe_allow_html=True)
-        st.radio("", subs, key=f"{panel_id}_sub_{cat}",
-                 label_visibility="collapsed",
-                 on_change=_pick_cat, args=(ss_cat, cat))
-
-    act_cat = st.session_state[ss_cat]
-    act_sub = st.session_state.get(f"{panel_id}_sub_{act_cat}",
-                                   list(cat_subs[act_cat])[0])
-    group = f"{act_cat}  ·  {act_sub}"
-    if group not in tree:
-        group = list(tree.keys())[0]
-    st.caption(f"Showing: {act_cat} · {act_sub}")
-    col = st.selectbox("", list(tree[group].keys()),
-                       format_func=lambda c: tree[group][c],
-                       key=f"{panel_id}_var_{group}",
-                       label_visibility="collapsed")
-    return col
+    st.caption("──────────────────────────────")
+    sel = st.radio("", sub_options, key=f"{panel_id}_sub",
+                   label_visibility="collapsed")
+    group = _resolve_group(sel, tree)
+    cols  = tree[group]
+    return st.selectbox("", cols, key=f"{panel_id}_var_{group}",
+                        label_visibility="collapsed")
 
 if analysis_type in SINGLE_VAR:
     _cl, _cr = st.columns(2)
     with _cl:
-        var_a = _var_panel("sv_a", A_CAT_SUBS, VAR_A_TREE, "Variable (Input)")
+        var_a = _picker("sv_a", A_SUB_OPTIONS, VAR_A_TREE, "VARIABLE A — Input / Driver")
     with _cr:
-        _var_panel("sv_b", B_CAT_SUBS, VAR_B_TREE, "Or pick an Output")
-        # for single-var, only var_a is used; show B side for context only
+        _picker("sv_b", B_SUB_OPTIONS, VAR_B_TREE, "VARIABLE B — Output / Target")
     var_b = predictors = outcome = outcome_label = None
 
 elif analysis_type in MULTI_PRED:
     _cl, _cr = st.columns([3, 2])
     with _cl:
-        ss_cat = "ols_a_cat"
-        if ss_cat not in st.session_state:
-            st.session_state[ss_cat] = "Nutrition"
-        st.markdown("**Predictors — what you're testing**")
-        for cat, subs in A_CAT_SUBS.items():
-            st.markdown(f"<span style='font-size:0.85em;opacity:0.7'>{cat}</span>",
-                        unsafe_allow_html=True)
-            st.radio("", subs, key=f"ols_a_sub_{cat}",
-                     label_visibility="collapsed",
-                     on_change=_pick_cat, args=(ss_cat, cat))
-        _act = st.session_state[ss_cat]
-        _sub = st.session_state.get(f"ols_a_sub_{_act}", A_CAT_SUBS[_act][0])
-        _ag = f"{_act}  ·  {_sub}"
-        st.caption(f"Showing: {_act} · {_sub}")
-        predictors = st.multiselect("", list(VAR_A_TREE[_ag].keys()),
-                                    default=list(VAR_A_TREE[_ag].keys())[:1],
-                                    format_func=lambda c: VAR_A_TREE[_ag][c],
+        st.markdown("**VARIABLE A — Input / Driver**")
+        st.caption("──────────────────────────────")
+        _a_sel = st.radio("", A_SUB_OPTIONS, key="ols_a_sub", label_visibility="collapsed")
+        _ag = _resolve_group(_a_sel, VAR_A_TREE)
+        predictors = st.multiselect("", VAR_A_TREE[_ag],
+                                    default=VAR_A_TREE[_ag][:1],
                                     key=f"ols_preds_{_ag}",
                                     label_visibility="collapsed")
     with _cr:
-        outcome = _var_panel("ols_b", B_CAT_SUBS, VAR_B_TREE, "Outcome — what you're measuring")
+        outcome = _picker("ols_b", B_SUB_OPTIONS, VAR_B_TREE, "VARIABLE B — Output / Target")
     outcome_label = col_label(outcome)
     var_a = var_b = None
 
 else:
     _cl, _cr = st.columns(2)
     with _cl:
-        var_a = _var_panel("a", A_CAT_SUBS, VAR_A_TREE, "Variable A — what you're testing")
+        var_a = _picker("a", A_SUB_OPTIONS, VAR_A_TREE, "VARIABLE A — Input / Driver")
     with _cr:
-        var_b = _var_panel("b", B_CAT_SUBS, VAR_B_TREE, "Variable B — what you're measuring")
+        var_b = _picker("b", B_SUB_OPTIONS, VAR_B_TREE, "VARIABLE B — Output / Target")
     predictors = outcome = outcome_label = None
 
 st.divider()
