@@ -175,7 +175,7 @@ def scatter_ols(a, b, coef, intercept, x_label, y_label,
             fig.add_trace(t)
     fig.add_trace(go.Scatter(
         x=x_range, y=coef * x_range + intercept, mode="lines",
-        line=dict(color="rgba(255,255,255,0.5)", dash="dash", width=2),
+        line=dict(color=ORANGE, dash="dash", width=2),
         showlegend=False,
     ))
     fig.update_layout(xaxis_title=x_label, yaxis_title=y_label,
@@ -466,7 +466,7 @@ if page == "Experiments":
         fig.add_trace(go.Scatter(
             x=x_rng, y=result["full_slope"] * x_rng + result["full_intercept"],
             mode="lines",
-            line=dict(color="rgba(255,255,255,0.45)", dash="dash", width=2),
+            line=dict(color=ORANGE, dash="dash", width=2),
             showlegend=False,
         ))
         fig.update_layout(xaxis_title=a_lbl, yaxis_title=b_lbl,
