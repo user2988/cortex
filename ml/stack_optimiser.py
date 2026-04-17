@@ -205,17 +205,21 @@ def _compute_30d_averages(df: pd.DataFrame) -> dict[str, float]:
     Uses lagged column names (col_lag1) since those are what the model sees.
     Falls back to full-history median if fewer than 30 rows are available.
     Covers both activity and nutrition bounds.
+
+    Experiment rows are excluded so recommendations reflect the user's true
+    baseline, not values recorded during an intentional protocol change.
     """
     all_bounds = {**ACTIVITY_BOUNDS, **NUTRITION_BOUNDS}
     avgs = {}
-    tail = df.tail(LOOKBACK_DAYS)
+    baseline = df[df["in_experiment"] == 0] if "in_experiment" in df.columns else df
+    tail = baseline.tail(LOOKBACK_DAYS)
     for col in all_bounds:
         lag_col = _lag_name(col)
         if lag_col not in df.columns:
             continue
         series = tail[lag_col].dropna()
         if series.empty:
-            series = df[lag_col].dropna()
+            series = baseline[lag_col].dropna()
         avgs[col] = float(series.mean()) if not series.empty else 0.0
     return avgs
 
@@ -396,11 +400,15 @@ def optimise(
 
     print(f"  Optimising {len(act_cols)} activity + {len(nut_cols)} nutrition features")
 
-    # Template: full-history medians for all features
+    # Template: full-history medians for all features (baseline days only)
+    baseline_df = df[df["in_experiment"] == 0] if "in_experiment" in df.columns else df
     template = np.array([
-        float(df[col].median()) if col in df.columns else 0.0
+        float(baseline_df[col].median()) if col in baseline_df.columns else 0.0
         for col in feature_cols
     ])
+    # Ensure the model predicts for a normal (non-experiment) day
+    if "in_experiment" in feature_cols:
+        template[feature_cols.index("in_experiment")] = 0.0
 
     # Override all optimisable columns with 30-day averages
     for col in all_opt_cols:
@@ -431,7 +439,13 @@ def optimise(
         "supplements": [],
     }
 
-    current_avg_score = float(scores.dropna().tail(LOOKBACK_DAYS).mean())
+    # Current wellness average — baseline days only
+    if "in_experiment" in df.columns:
+        baseline_idx = df.index[df["in_experiment"] == 0]
+        baseline_scores = scores[scores.index.isin(baseline_idx)]
+    else:
+        baseline_scores = scores
+    current_avg_score = float(baseline_scores.dropna().tail(LOOKBACK_DAYS).mean())
 
     for label, recs in [("Activity", activity_recs), ("Nutrition", nutrition_recs)]:
         if recs:

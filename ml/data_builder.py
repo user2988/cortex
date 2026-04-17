@@ -109,6 +109,37 @@ CORRELATION_THRESHOLD = 0.95  # drop one of any pair correlated above this
 # DATA LOADING
 # ─────────────────────────────────────────────────────────────
 
+def _load_experiment_dates() -> set:
+    """
+    Return all dates covered by any non-cancelled experiment.
+
+    Used to label rows in the training data so the model can account for
+    intentional protocol changes rather than treating them as baseline.
+    Returns an empty set if the experiments table doesn't exist yet.
+    """
+    sql = """
+        SELECT start_date, duration_days
+        FROM experiments
+        WHERE status != 'cancelled'
+    """
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql)
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        return set()
+
+    dates = set()
+    for start_date, duration_days in rows:
+        for d in pd.date_range(pd.Timestamp(start_date), periods=duration_days, freq="D"):
+            dates.add(d)
+    return dates
+
+
 def _load_raw() -> pd.DataFrame:
     """
     Load all biometrics and nutrition rows from PostgreSQL.
@@ -302,6 +333,13 @@ def build() -> pd.DataFrame:
     if len(df) < 2:
         print("  Not enough data to build features.")
         return pd.DataFrame()
+
+    # Flag experiment days before any transformations
+    exp_dates = _load_experiment_dates()
+    df["in_experiment"] = df.index.isin(exp_dates).astype(int)
+    n_exp = int(df["in_experiment"].sum())
+    if n_exp:
+        print(f"  Experiment rows: {n_exp} (will receive 0.5× sample weight during training)")
 
     # Smooth slow micronutrients before lagging
     df = _apply_rolling(df, SLOW_MICRONUTRIENTS, window=7)
