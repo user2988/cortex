@@ -137,9 +137,49 @@ def get_experiments():
 def get_targets():
     return analysis.load_targets()
 
+@st.cache_data(ttl=300)
+def get_ml_recommendation():
+    """Return the most recent ML recommendation row, or None."""
+    import psycopg2, json
+    DATABASE_URL = os.environ.get("DATABASE_URL")
+    if not DATABASE_URL:
+        return None
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT r.run_at, r.confidence_tier, r.n_days_data,
+                           r.current_wellness_avg, r.predicted_wellness,
+                           r.recommendations,
+                           m.test_r2, m.top_features
+                    FROM ml_recommendations r
+                    LEFT JOIN ml_model_runs m ON m.id = r.model_run_id
+                    ORDER BY r.run_at DESC
+                    LIMIT 1
+                """)
+                row = cur.fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return None
+        return {
+            "run_at":           row[0],
+            "tier":             row[1],
+            "n_days":           row[2],
+            "current_wellness": float(row[3]) if row[3] is not None else None,
+            "predicted_wellness": float(row[4]) if row[4] is not None else None,
+            "recommendations":  row[5] if isinstance(row[5], dict) else json.loads(row[5]),
+            "test_r2":          float(row[6]) if row[6] is not None else None,
+            "top_features":     row[7] if isinstance(row[7], list) else (json.loads(row[7]) if row[7] else []),
+        }
+    except Exception:
+        return None
+
 def bust_cache():
     get_data.clear(); get_findings.clear()
     get_experiments.clear(); get_targets.clear()
+    get_ml_recommendation.clear()
 
 # ─────────────────────────────────────────────────────────────
 # HELPERS
@@ -208,7 +248,7 @@ if "exp_detail_id" not in st.session_state:
 if "saved_view_id" not in st.session_state:
     st.session_state.saved_view_id = None
 
-page = st.sidebar.radio("", ["Insights", "Experiments", "Explorer"],
+page = st.sidebar.radio("", ["Insights", "Experiments", "Explorer", "Recommendations"],
                          key="page", label_visibility="collapsed")
 
 if page != "Experiments":
@@ -910,3 +950,126 @@ if saveable:
             st.toast("Saved to Findings.", icon="✅")
         except Exception as e:
             st.error(f"Save failed: {e}")
+
+# ─────────────────────────────────────────────────────────────
+# RECOMMENDATIONS PAGE
+# ─────────────────────────────────────────────────────────────
+
+if page == "Recommendations":
+    st.title("Recommendations")
+
+    rec = get_ml_recommendation()
+
+    if rec is None:
+        st.caption("No recommendations yet.")
+        st.markdown(
+            "The ML pipeline runs every **Sunday** and writes personalised activity "
+            "targets based on what your data says actually moves your wellness score. "
+            "Check back after the first run."
+        )
+        st.stop()
+
+    # ── Header metadata ──────────────────────────────────────
+    run_dt  = pd.Timestamp(rec["run_at"]).tz_localize(None) if rec["run_at"] else None
+    run_str = run_dt.strftime("%-d %b %Y") if run_dt else "unknown"
+
+    tier_color = {"high": GREEN, "moderate": ORANGE, "low": RED}.get(rec["tier"], GRAY)
+    tier_label = rec["tier"].capitalize()
+
+    st.caption(f"Last updated {run_str}  ·  {rec['n_days']} days of data")
+
+    # Wellness score delta card
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        st.metric("Current Wellness (30d avg)",
+                  f"{rec['current_wellness']:.1f}" if rec["current_wellness"] is not None else "—")
+    with col_b:
+        if rec["current_wellness"] and rec["predicted_wellness"]:
+            delta = rec["predicted_wellness"] - rec["current_wellness"]
+            st.metric("Predicted Wellness",
+                      f"{rec['predicted_wellness']:.1f}",
+                      delta=f"{delta:+.1f}")
+        else:
+            st.metric("Predicted Wellness",
+                      f"{rec['predicted_wellness']:.1f}" if rec["predicted_wellness"] else "—")
+    with col_c:
+        st.metric("Model Confidence", tier_label,
+                  delta=f"R² {rec['test_r2']:.2f}" if rec["test_r2"] else None,
+                  delta_color="off")
+
+    st.divider()
+
+    # ── Activity recommendations ─────────────────────────────
+    activity = rec["recommendations"].get("activity", [])
+
+    if not activity:
+        st.caption("No activity recommendations generated for this run.")
+    else:
+        st.markdown("#### Activity Targets")
+        st.caption(
+            "Targets the model predicts will improve your wellness score. "
+            "Capped at 40 % above your 30-day average — no unrealistic leaps."
+        )
+
+        DIRECTION_ICON = {"increase": "↑", "decrease": "↓", "maintain": "→"}
+        DIRECTION_COLOR = {"increase": GREEN, "decrease": RED, "maintain": GRAY}
+
+        # Split into increase/decrease/maintain groups for readability
+        increase = [r for r in activity if r["direction"] == "increase"]
+        decrease = [r for r in activity if r["direction"] == "decrease"]
+        maintain = [r for r in activity if r["direction"] == "maintain"]
+
+        def _rec_card(r):
+            icon  = DIRECTION_ICON[r["direction"]]
+            label = analysis.COL_LABELS.get(r["metric"], r["metric"])
+            delta_str = f"{r['change_pct']:+.0f}%"
+            with st.container(border=True):
+                c1, c2, c3 = st.columns([3, 2, 2])
+                c1.markdown(f"**{label}**")
+                c2.metric("Current avg", f"{r['current_avg']:,.0f}")
+                c3.metric("Target", f"{r['recommended']:,.0f}", delta=delta_str,
+                          delta_color="normal" if r["direction"] == "increase" else
+                                      "inverse"  if r["direction"] == "decrease" else "off")
+
+        if increase:
+            st.markdown("**Increase**")
+            for r in increase:
+                _rec_card(r)
+
+        if decrease:
+            st.markdown("**Decrease**")
+            for r in decrease:
+                _rec_card(r)
+
+        if maintain:
+            with st.expander("Maintain (no change needed)"):
+                for r in maintain:
+                    label = analysis.COL_LABELS.get(r["metric"], r["metric"])
+                    st.caption(f"{label} — currently {r['current_avg']:,.0f}, on target")
+
+    # ── Top model features ───────────────────────────────────
+    top_features = rec.get("top_features") or []
+    if top_features:
+        st.divider()
+        st.markdown("#### What drives your score")
+        st.caption("Features the model weighted most heavily — ranked by importance.")
+
+        feat_names = [analysis.COL_LABELS.get(
+            f["feature"].replace("_lag1", ""), f["feature"].replace("_lag1", "")
+        ) for f in top_features[:10]]
+        feat_imps  = [f["importance"] for f in top_features[:10]]
+        max_imp    = max(feat_imps) if feat_imps else 1
+
+        fig = go.Figure(go.Bar(
+            x=feat_imps,
+            y=feat_names,
+            orientation="h",
+            marker_color=[BLUE if i > max_imp * 0.5 else GRAY for i in feat_imps],
+        ))
+        fig.update_layout(
+            height=40 * len(feat_names) + 60,
+            margin=dict(l=0, r=20, t=20, b=0),
+            xaxis_title="Importance",
+            yaxis=dict(autorange="reversed"),
+        )
+        st.plotly_chart(fig, use_container_width=True)
