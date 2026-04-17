@@ -543,12 +543,49 @@ if page == "Experiments":
         if n_active >= 3:
             st.warning("You have 3 active experiments — complete or delete one before adding another.")
         else:
+            # Variable pickers OUTSIDE the form so category→subcategory reruns work
+            ec1, ec2 = st.columns(2)
+            with ec1:
+                st.markdown("**Variable A** — what you're testing")
+                if "exp_a_cat" not in st.session_state:
+                    st.session_state.exp_a_cat = "Nutrition"
+                for cat, subs in A_CAT_SUBS.items():
+                    st.markdown(f"<span style='font-size:0.85em;opacity:0.7'>{cat}</span>",
+                                unsafe_allow_html=True)
+                    st.radio("", subs, key=f"exp_a_sub_{cat}",
+                             label_visibility="collapsed",
+                             on_change=_pick_cat, args=("exp_a_cat", cat))
+                _ea_cat = st.session_state.exp_a_cat
+                _ea_sub = st.session_state.get(f"exp_a_sub_{_ea_cat}", A_CAT_SUBS[_ea_cat][0])
+                _ea_grp = f"{_ea_cat}  ·  {_ea_sub}"
+                st.caption(f"Showing: {_ea_cat} · {_ea_sub}")
+                st.selectbox("", list(VAR_A_TREE[_ea_grp].keys()),
+                             format_func=lambda c: VAR_A_TREE[_ea_grp][c],
+                             key=f"exp_a_var_{_ea_grp}", label_visibility="collapsed")
+
+            with ec2:
+                st.markdown("**Variable B** — what you're measuring")
+                if "exp_b_cat" not in st.session_state:
+                    st.session_state.exp_b_cat = "Sleep"
+                for cat, subs in B_CAT_SUBS.items():
+                    st.markdown(f"<span style='font-size:0.85em;opacity:0.7'>{cat}</span>",
+                                unsafe_allow_html=True)
+                    st.radio("", subs, key=f"exp_b_sub_{cat}",
+                             label_visibility="collapsed",
+                             on_change=_pick_cat, args=("exp_b_cat", cat))
+                _eb_cat = st.session_state.exp_b_cat
+                _eb_sub = st.session_state.get(f"exp_b_sub_{_eb_cat}", B_CAT_SUBS[_eb_cat][0])
+                _eb_grp = f"{_eb_cat}  ·  {_eb_sub}"
+                st.caption(f"Showing: {_eb_cat} · {_eb_sub}")
+                st.selectbox("", list(VAR_B_TREE[_eb_grp].keys()),
+                             format_func=lambda c: VAR_B_TREE[_eb_grp][c],
+                             key=f"exp_b_var_{_eb_grp}", label_visibility="collapsed")
+
+            st.divider()
+
             with st.form("new_exp"):
-                name     = st.text_input("Hypothesis / name",
-                                          placeholder="e.g. Reducing sodium impact on deep sleep")
-                c1, c2   = st.columns(2)
-                a_lbl_sel = c1.selectbox("Variable A  (input / driver)",  list(EXP_A_OPTIONS.keys()))
-                b_lbl_sel = c2.selectbox("Variable B  (output / target)", list(EXP_B_OPTIONS.keys()))
+                name = st.text_input("Hypothesis / name",
+                                     placeholder="e.g. Reducing sodium impact on deep sleep")
                 c3, c4, c5 = st.columns(3)
                 lag    = c3.selectbox("Lag (days)", [0, 1, 2, 3])
                 method = c4.radio("Method", ["pearson", "spearman"], horizontal=True)
@@ -557,13 +594,26 @@ if page == "Experiments":
                 start  = st.date_input("Start date")
                 submit = st.form_submit_button("Create experiment", type="primary")
                 if submit:
+                    # Read variable selections from session state
+                    _fa_cat = st.session_state.get("exp_a_cat", "Nutrition")
+                    _fa_sub = st.session_state.get(f"exp_a_sub_{_fa_cat}", A_CAT_SUBS[_fa_cat][0])
+                    _fa_grp = f"{_fa_cat}  ·  {_fa_sub}"
+                    _var_a  = st.session_state.get(f"exp_a_var_{_fa_grp}",
+                                                   list(VAR_A_TREE[_fa_grp].keys())[0])
+
+                    _fb_cat = st.session_state.get("exp_b_cat", "Sleep")
+                    _fb_sub = st.session_state.get(f"exp_b_sub_{_fb_cat}", B_CAT_SUBS[_fb_cat][0])
+                    _fb_grp = f"{_fb_cat}  ·  {_fb_sub}"
+                    _var_b  = st.session_state.get(f"exp_b_var_{_fb_grp}",
+                                                   list(VAR_B_TREE[_fb_grp].keys())[0])
+
                     if not name:
                         st.error("Give the experiment a name.")
                     else:
                         analysis.create_experiment(
                             name=name,
-                            variable_a=EXP_A_OPTIONS[a_lbl_sel],
-                            variable_b=EXP_B_OPTIONS[b_lbl_sel],
+                            variable_a=_var_a,
+                            variable_b=_var_b,
                             lag_days=lag, method=method,
                             start_date=start, duration_days=int(dur),
                         )
