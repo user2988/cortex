@@ -998,53 +998,55 @@ if page == "Recommendations":
 
     st.divider()
 
-    # ── Activity recommendations ─────────────────────────────
-    activity = rec["recommendations"].get("activity", [])
+    DIRECTION_ICON = {"increase": "↑", "decrease": "↓", "maintain": "→"}
 
-    if not activity:
-        st.caption("No activity recommendations generated for this run.")
-    else:
-        st.markdown("#### Activity Targets")
-        st.caption(
-            "Targets the model predicts will improve your wellness score. "
-            "Capped at 40 % above your 30-day average — no unrealistic leaps."
-        )
+    def _rec_card(r):
+        label     = analysis.COL_LABELS.get(r["metric"], r["metric"])
+        delta_str = f"{r['change_pct']:+.0f}%"
+        with st.container(border=True):
+            c1, c2, c3 = st.columns([3, 2, 2])
+            c1.markdown(f"**{label}**")
+            c2.metric("Current avg", f"{r['current_avg']:,.1f}")
+            c3.metric("Target", f"{r['recommended']:,.1f}", delta=delta_str,
+                      delta_color="normal" if r["direction"] == "increase" else
+                                  "inverse" if r["direction"] == "decrease" else "off")
 
-        DIRECTION_ICON = {"increase": "↑", "decrease": "↓", "maintain": "→"}
-        DIRECTION_COLOR = {"increase": GREEN, "decrease": RED, "maintain": GRAY}
-
-        # Split into increase/decrease/maintain groups for readability
-        increase = [r for r in activity if r["direction"] == "increase"]
-        decrease = [r for r in activity if r["direction"] == "decrease"]
-        maintain = [r for r in activity if r["direction"] == "maintain"]
-
-        def _rec_card(r):
-            icon  = DIRECTION_ICON[r["direction"]]
-            label = analysis.COL_LABELS.get(r["metric"], r["metric"])
-            delta_str = f"{r['change_pct']:+.0f}%"
-            with st.container(border=True):
-                c1, c2, c3 = st.columns([3, 2, 2])
-                c1.markdown(f"**{label}**")
-                c2.metric("Current avg", f"{r['current_avg']:,.0f}")
-                c3.metric("Target", f"{r['recommended']:,.0f}", delta=delta_str,
-                          delta_color="normal" if r["direction"] == "increase" else
-                                      "inverse"  if r["direction"] == "decrease" else "off")
-
+    def _rec_section(recs, title, caption_text):
+        if not recs:
+            return
+        st.markdown(f"#### {title}")
+        st.caption(caption_text)
+        increase = [r for r in recs if r["direction"] == "increase"]
+        decrease = [r for r in recs if r["direction"] == "decrease"]
+        maintain = [r for r in recs if r["direction"] == "maintain"]
         if increase:
             st.markdown("**Increase**")
-            for r in increase:
-                _rec_card(r)
-
+            for r in increase: _rec_card(r)
         if decrease:
             st.markdown("**Decrease**")
-            for r in decrease:
-                _rec_card(r)
-
+            for r in decrease: _rec_card(r)
         if maintain:
             with st.expander("Maintain (no change needed)"):
                 for r in maintain:
-                    label = analysis.COL_LABELS.get(r["metric"], r["metric"])
-                    st.caption(f"{label} — currently {r['current_avg']:,.0f}, on target")
+                    lbl = analysis.COL_LABELS.get(r["metric"], r["metric"])
+                    st.caption(f"{lbl} — currently {r['current_avg']:,.1f}, on target")
+
+    activity  = rec["recommendations"].get("activity",  [])
+    nutrition = rec["recommendations"].get("nutrition", [])
+
+    if not activity and not nutrition:
+        st.caption("No recommendations generated for this run.")
+    else:
+        _rec_section(
+            activity, "Activity Targets",
+            "Capped at 40 % above your 30-day average — no unrealistic leaps."
+        )
+        if activity and nutrition:
+            st.divider()
+        _rec_section(
+            nutrition, "Nutrition Targets",
+            "Capped at 50 % above your 30-day average and within safe upper limits."
+        )
 
     # ── Top model features ───────────────────────────────────
     top_features = rec.get("top_features") or []

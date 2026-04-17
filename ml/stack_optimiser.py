@@ -1,21 +1,22 @@
 """
 Cortex ML — Component 4: Stack Optimiser
 
-Uses the trained XGBoost model to find the activity targets that maximise
-the predicted wellness score for this specific user.
+Uses the trained XGBoost model to find the nutrition and activity targets
+that maximise the predicted wellness score for this specific user.
 
 Optimisation principles
 -----------------------
-- Only activity features are optimised in this version. Supplement
-  optimisation will be added once the supplements table is live.
+- Both nutrition and activity features are optimised.
+- Supplement optimisation will be added once the supplements table is live.
 - Only features the model considers important (above mean importance)
   are varied — the rest are held at the user's 30-day average.
 - Activity recommendations are capped at 40 % above the user's 30-day
   average to prevent unrealistic targets for less active users.
+- Nutrition recommendations are capped at 50 % above the user's 30-day
+  average OR the absolute safe upper limit, whichever is lower.
 - sedentary_min is treated as lower-is-better: its floor is capped at
-  40 % *below* the user's average for the same reason.
-- Dose / target values are rounded to clean, practical increments.
-- Recommendations never suggest stopping an activity entirely.
+  40 % below the user's average for the same reason.
+- Values are rounded to clean, practical increments.
 
 Optimisation method
 -------------------
@@ -35,17 +36,15 @@ from scipy.optimize import differential_evolution
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
-MAX_ACTIVITY_DELTA = 0.40   # recommendation cannot exceed 40 % above 30d avg
-LOOKBACK_DAYS      = 30     # window for computing "current" averages
-IMPORTANCE_FLOOR   = 0.0    # features at or below this are never optimised
-                             # (set dynamically to mean importance at runtime)
+MAX_ACTIVITY_DELTA  = 0.40   # activity: never exceed 40 % above 30d avg
+MAX_NUTRITION_DELTA = 0.50   # nutrition: never exceed 50 % above 30d avg
+LOOKBACK_DAYS       = 30     # window for computing "current" averages
 
 # ─────────────────────────────────────────────────────────────
 # ACTIVITY CONSTRAINTS
 # ─────────────────────────────────────────────────────────────
 
 # (absolute_min, absolute_max, round_to, lower_is_better)
-# These are hard limits that cannot be exceeded under any circumstances.
 ACTIVITY_BOUNDS: dict[str, tuple] = {
     "steps":                (2_000,  25_000, 500,  False),
     "active_zone_min":      (0,      180,    5,    False),
@@ -60,8 +59,56 @@ ACTIVITY_BOUNDS: dict[str, tuple] = {
     "time_in_peak_min":     (0,      60,     5,    False),
 }
 
-# Direction labels
-_DIRECTION_LABELS = {True: "decrease", False: "increase"}
+# ─────────────────────────────────────────────────────────────
+# NUTRITION CONSTRAINTS
+# ─────────────────────────────────────────────────────────────
+
+# (absolute_min, absolute_max, round_to, lower_is_better)
+# absolute_max is a hard safe upper limit — never exceeded regardless of
+# the 50 % personal delta cap. Values sourced from NIH Tolerable Upper
+# Intake Levels (UL) or conservative clinical practice where no UL exists.
+NUTRITION_BOUNDS: dict[str, tuple] = {
+    # Macros
+    "calories_in":              (1_200, 4_000,   50,   False),
+    "protein_g":                (20,    250,      5,    False),
+    "carbs_g":                  (50,    500,      5,    False),
+    "fat_g":                    (20,    200,      5,    False),
+    "fibre_g":                  (5,     60,       1,    False),
+    "sugar_g":                  (0,     100,      5,    True),   # lower is better
+    "water_ml":                 (500,   5_000,    100,  False),
+    "sodium_mg":                (500,   2_300,    50,   True),   # WHO upper limit
+    # Fats
+    "saturated_fat_g":          (0,     20,       1,    True),
+    "omega3_mg":                (0,     3_000,    100,  False),
+    "epa_mg":                   (0,     2_000,    100,  False),
+    "dha_mg":                   (0,     2_000,    100,  False),
+    # Vitamins — fat-soluble
+    "vitamin_a_mcg":            (0,     3_000,    50,   False),  # NIH UL 3000
+    "vitamin_d_iu":             (0,     4_000,    200,  False),  # NIH UL 4000
+    "vitamin_e_mg":             (0,     1_000,    10,   False),  # NIH UL 1000
+    "vitamin_k_mcg":            (0,     1_000,    10,   False),
+    # Vitamins — water-soluble
+    "vitamin_c_mg":             (0,     2_000,    50,   False),  # NIH UL 2000
+    "vitamin_b6_mg":            (0,     100,      1,    False),  # NIH UL 100
+    "vitamin_b12_mcg":          (0,     1_000,    10,   False),
+    "folate_mcg":               (0,     1_000,    25,   False),  # NIH UL 1000
+    "niacin_mg":                (0,     35,       1,    False),  # NIH UL 35
+    "thiamine_mg":              (0,     100,      1,    False),
+    "riboflavin_mg":            (0,     100,      1,    False),
+    "pantothenic_acid_mg":      (0,     100,      1,    False),
+    "biotin_mcg":               (0,     1_000,    10,   False),
+    # Minerals
+    "magnesium_mg":             (0,     420,      10,   False),  # NIH UL 420 dietary
+    "zinc_mg":                  (0,     40,       1,    False),  # NIH UL 40
+    "iron_mg":                  (0,     45,       1,    False),  # NIH UL 45
+    "calcium_mg":               (0,     2_500,    50,   False),  # NIH UL 2500
+    "potassium_mg":             (0,     4_700,    100,  False),
+    "selenium_mcg":             (0,     400,      5,    False),  # NIH UL 400
+    "copper_mg":                (0,     10,       0.5,  False),  # NIH UL 10
+    # Stimulants
+    "caffeine_mg":              (0,     400,      25,   True),   # FDA upper limit
+    "alcohol_units":            (0,     14,       0.5,  True),   # lower is better
+}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -153,14 +200,16 @@ def _round_to(value: float, increment: float) -> float:
 
 def _compute_30d_averages(df: pd.DataFrame) -> dict[str, float]:
     """
-    Compute the user's trailing 30-day average for each activity column.
+    Compute the user's trailing 30-day average for each optimisable column.
 
     Uses lagged column names (col_lag1) since those are what the model sees.
     Falls back to full-history median if fewer than 30 rows are available.
+    Covers both activity and nutrition bounds.
     """
+    all_bounds = {**ACTIVITY_BOUNDS, **NUTRITION_BOUNDS}
     avgs = {}
     tail = df.tail(LOOKBACK_DAYS)
-    for col in ACTIVITY_BOUNDS:
+    for col in all_bounds:
         lag_col = _lag_name(col)
         if lag_col not in df.columns:
             continue
@@ -173,22 +222,24 @@ def _compute_30d_averages(df: pd.DataFrame) -> dict[str, float]:
 
 def _user_bounds(col: str, avg: float) -> tuple[float, float]:
     """
-    Compute the per-user optimisation bounds for an activity column.
+    Compute the per-user optimisation bounds for an activity or nutrition column.
 
-    The absolute hard limits are further tightened by the 40 % rule:
-    - For normal activity (higher is better): upper = min(hard_max, avg * 1.4)
-    - For sedentary (lower is better):        lower = max(hard_min, avg * 0.6)
+    Activity : hard limits tightened by 40 % personal delta cap.
+    Nutrition: hard limits tightened by 50 % personal delta cap.
+    For lower-is-better columns the floor is raised symmetrically.
     """
-    hard_min, hard_max, _, lower_is_better = ACTIVITY_BOUNDS[col]
+    if col in ACTIVITY_BOUNDS:
+        hard_min, hard_max, _, lower_is_better = ACTIVITY_BOUNDS[col]
+        delta = MAX_ACTIVITY_DELTA
+    else:
+        hard_min, hard_max, _, lower_is_better = NUTRITION_BOUNDS[col]
+        delta = MAX_NUTRITION_DELTA
 
     if lower_is_better:
-        # Can reduce by up to 40 % of current average
-        soft_min = max(hard_min, avg * (1 - MAX_ACTIVITY_DELTA))
+        soft_min = max(hard_min, avg * (1 - delta))
         return float(soft_min), float(hard_max)
     else:
-        # Can increase by up to 40 % of current average
-        soft_max = min(hard_max, avg * (1 + MAX_ACTIVITY_DELTA))
-        # Never recommend less than the absolute minimum
+        soft_max = min(hard_max, avg * (1 + delta))
         return float(hard_min), float(max(hard_min, soft_max))
 
 
@@ -196,27 +247,35 @@ def _select_optimisable(
     feature_cols: list[str],
     importances: dict[str, float],
     avgs: dict[str, float],
-) -> list[str]:
+) -> tuple[list[str], list[str]]:
     """
-    Return activity columns that are both present in the model and carry
-    importance above the mean importance across all features.
+    Return (activity_cols, nutrition_cols) that the model considers important.
 
-    This ensures the optimiser only varies inputs the model actually uses
-    for this specific user's data.
+    Only columns with importance above the mean across all features are
+    included — this keeps recommendations focused on what actually moves
+    the needle for this specific user.
     """
     all_importances = list(importances.values())
     mean_imp = float(np.mean(all_importances)) if all_importances else 0.0
 
-    selected = []
+    activity_cols  = []
+    nutrition_cols = []
+
     for col in ACTIVITY_BOUNDS:
         lag_col = _lag_name(col)
         if lag_col not in feature_cols:
             continue
-        imp = importances.get(lag_col, 0.0)
-        if imp > mean_imp and col in avgs:
-            selected.append(col)
+        if importances.get(lag_col, 0.0) > mean_imp and col in avgs:
+            activity_cols.append(col)
 
-    return selected
+    for col in NUTRITION_BOUNDS:
+        lag_col = _lag_name(col)
+        if lag_col not in feature_cols:
+            continue
+        if importances.get(lag_col, 0.0) > mean_imp and col in avgs:
+            nutrition_cols.append(col)
+
+    return activity_cols, nutrition_cols
 
 
 # ─────────────────────────────────────────────────────────────
@@ -271,13 +330,38 @@ def _optimise(
 # PUBLIC INTERFACE
 # ─────────────────────────────────────────────────────────────
 
+def _build_rec(col, bounds_dict, avgs, optimised_vec, feature_cols, importances):
+    """Build a single recommendation dict for one column."""
+    _, _, round_inc, lower_is_better = bounds_dict[col]
+    current     = avgs.get(col, 0.0)
+    raw_rec     = float(optimised_vec[feature_cols.index(_lag_name(col))])
+    recommended = _round_to(raw_rec, round_inc)
+    delta_pct   = ((recommended - current) / current * 100) if current else 0.0
+
+    if abs(delta_pct) < 2:
+        direction = "maintain"
+    elif lower_is_better:
+        direction = "decrease" if recommended < current else "increase"
+    else:
+        direction = "increase" if recommended > current else "decrease"
+
+    return {
+        "metric":      col,
+        "current_avg": round(current, 1),
+        "recommended": round(recommended, 1),
+        "direction":   direction,
+        "change_pct":  round(delta_pct, 1),
+        "importance":  round(importances.get(_lag_name(col), 0.0), 4),
+    }
+
+
 def optimise(
     df: pd.DataFrame,
     scores: pd.Series,
     train_result: dict,
 ) -> dict | None:
     """
-    Find the activity targets that maximise predicted wellness for this user.
+    Find the nutrition and activity targets that maximise predicted wellness.
 
     Parameters
     ----------
@@ -303,101 +387,79 @@ def optimise(
     }
 
     avgs = _compute_30d_averages(df)
-    print(f"  30-day activity averages:")
-    for col, avg in avgs.items():
-        print(f"    {col:<25} {avg:.1f}")
+    act_cols, nut_cols = _select_optimisable(feature_cols, importances, avgs)
+    all_opt_cols = act_cols + nut_cols
 
-    opt_cols = _select_optimisable(feature_cols, importances, avgs)
-    if not opt_cols:
-        print("  No activity features met the importance threshold — skipping optimisation.")
+    if not all_opt_cols:
+        print("  No features met the importance threshold — skipping optimisation.")
         return None
 
-    print(f"\n  Optimising {len(opt_cols)} activity features: {opt_cols}")
+    print(f"  Optimising {len(act_cols)} activity + {len(nut_cols)} nutrition features")
 
-    # Build template vector from full-history medians (stable baseline)
+    # Template: full-history medians for all features
     template = np.array([
         float(df[col].median()) if col in df.columns else 0.0
         for col in feature_cols
     ])
 
-    # Override activity columns with 30-day averages in the template
-    for col in ACTIVITY_BOUNDS:
+    # Override all optimisable columns with 30-day averages
+    for col in all_opt_cols:
         lag_col = _lag_name(col)
         if lag_col in feature_cols and col in avgs:
-            idx = feature_cols.index(lag_col)
-            template[idx] = avgs[col]
+            template[feature_cols.index(lag_col)] = avgs[col]
 
     baseline_score = float(model.predict(template.reshape(1, -1))[0])
     print(f"  Baseline predicted wellness : {baseline_score:.2f}")
 
-    # Build per-column optimisation bounds
-    opt_indices = [feature_cols.index(_lag_name(c)) for c in opt_cols]
-    opt_bounds  = [_user_bounds(c, avgs[c]) for c in opt_cols]
+    # Optimisation bounds — one entry per optimisable column
+    opt_indices = [feature_cols.index(_lag_name(c)) for c in all_opt_cols]
+    opt_bounds  = [_user_bounds(c, avgs[c]) for c in all_opt_cols]
 
-    optimised_vec = _optimise(model, template, feature_cols, opt_cols, opt_indices, opt_bounds)
+    optimised_vec   = _optimise(model, template, feature_cols, all_opt_cols, opt_indices, opt_bounds)
     optimised_score = float(model.predict(optimised_vec.reshape(1, -1))[0])
     print(f"  Optimised predicted wellness: {optimised_score:.2f}")
 
-    # Build recommendation objects
-    activity_recs = []
-    for col in opt_cols:
-        _, _, round_inc, lower_is_better = ACTIVITY_BOUNDS[col]
-        current = avgs.get(col, 0.0)
-        raw_rec = float(optimised_vec[feature_cols.index(_lag_name(col))])
-        recommended = _round_to(raw_rec, round_inc)
+    activity_recs  = [_build_rec(c, ACTIVITY_BOUNDS,  avgs, optimised_vec, feature_cols, importances) for c in act_cols]
+    nutrition_recs = [_build_rec(c, NUTRITION_BOUNDS, avgs, optimised_vec, feature_cols, importances) for c in nut_cols]
 
-        delta_pct = ((recommended - current) / current * 100) if current else 0.0
-
-        if abs(delta_pct) < 2:
-            direction = "maintain"
-        elif lower_is_better:
-            direction = "decrease" if recommended < current else "increase"
-        else:
-            direction = "increase" if recommended > current else "decrease"
-
-        activity_recs.append({
-            "metric":      col,
-            "current_avg": round(current, 1),
-            "recommended": round(recommended, 1),
-            "direction":   direction,
-            "change_pct":  round(delta_pct, 1),
-            "importance":  round(importances.get(_lag_name(col), 0.0), 4),
-        })
-
-    activity_recs.sort(key=lambda x: abs(x["change_pct"]), reverse=True)
+    activity_recs.sort( key=lambda x: abs(x["change_pct"]), reverse=True)
+    nutrition_recs.sort(key=lambda x: abs(x["change_pct"]), reverse=True)
 
     recommendations = {
         "activity":    activity_recs,
-        "supplements": [],   # populated when supplements table is live
+        "nutrition":   nutrition_recs,
+        "supplements": [],
     }
 
     current_avg_score = float(scores.dropna().tail(LOOKBACK_DAYS).mean())
 
-    print(f"\n  Activity recommendations:")
-    for rec in activity_recs:
-        print(f"    {rec['metric']:<25} {rec['direction']:<10} "
-              f"{rec['current_avg']:>8.1f} → {rec['recommended']:>8.1f}  "
-              f"({rec['change_pct']:+.1f}%)")
+    for label, recs in [("Activity", activity_recs), ("Nutrition", nutrition_recs)]:
+        if recs:
+            print(f"\n  {label} recommendations:")
+            for rec in recs:
+                print(f"    {rec['metric']:<30} {rec['direction']:<10} "
+                      f"{rec['current_avg']:>9.1f} → {rec['recommended']:>9.1f}  "
+                      f"({rec['change_pct']:+.1f}%)")
 
     run_at = datetime.now(timezone.utc)
     rec_id = _write_recommendation(
-        run_at       = run_at,
-        model_run_id = model_run_id,
-        tier         = tier,
-        n_days       = n_rows,
-        current_avg  = current_avg_score,
-        predicted    = optimised_score,
+        run_at          = run_at,
+        model_run_id    = model_run_id,
+        tier            = tier,
+        n_days          = n_rows,
+        current_avg     = current_avg_score,
+        predicted       = optimised_score,
         recommendations = recommendations,
     )
     print(f"\n  Recommendation written (id={rec_id}).")
 
     return {
-        "rec_id":            rec_id,
-        "tier":              tier,
-        "n_days":            n_rows,
-        "current_wellness":  round(current_avg_score, 2),
+        "rec_id":             rec_id,
+        "tier":               tier,
+        "n_days":             n_rows,
+        "current_wellness":   round(current_avg_score, 2),
         "predicted_wellness": round(optimised_score, 2),
-        "recommendations":   recommendations,
+        "recommendations":    recommendations,
     }
 
 
