@@ -205,6 +205,8 @@ if "page" not in st.session_state:
     st.session_state.page = "Insights"
 if "exp_detail_id" not in st.session_state:
     st.session_state.exp_detail_id = None
+if "saved_view_id" not in st.session_state:
+    st.session_state.saved_view_id = None
 
 page = st.sidebar.radio("", ["Insights", "Experiments", "Explorer"],
                          key="page", label_visibility="collapsed")
@@ -231,13 +233,15 @@ if page == "Insights":
 
     # ── TOP FINDINGS ────────────────────────────────────────
     st.markdown("#### TOP FINDINGS")
-    findings = get_findings()
+    _all_findings = get_findings()
+    findings = _all_findings[~_all_findings["pinned"].astype(bool)] \
+               if not _all_findings.empty else _all_findings
 
     if findings.empty:
         if n_nut < 30:
             st.caption(f"Keep logging — your first insights appear after 30 days ({n_nut}/30 nutrition days logged).")
         else:
-            st.caption("No findings yet — run analyses in the Explorer and save results.")
+            st.caption("No findings yet — the weekly job runs every Sunday and surfaces the strongest correlations.")
     else:
         for _, row in findings.head(5).iterrows():
             r2   = float(row["r_squared"])  if row["r_squared"]  is not None else 0
@@ -657,6 +661,7 @@ if "result" not in st.session_state:
     st.session_state.result = None; st.session_state.result_type = None; st.session_state.result_meta = {}
 
 if run_clicked:
+    st.session_state.saved_view_id = None   # clear any saved view
     with st.spinner("Running…"):
         if   analysis_type == "Pearson Correlation":     res = analysis.pearson_correlation(df, var_a, var_b)
         elif analysis_type == "Spearman Correlation":    res = analysis.spearman_correlation(df, var_a, var_b)
@@ -679,6 +684,98 @@ if run_clicked:
         "predictors": locals().get("predictors"), "outcome": locals().get("outcome"),
         "outcome_label": col_label(outcome) if locals().get("outcome") else None,
     }
+
+# ── Saved Analyses ───────────────────────────────────────────
+_saved = get_findings()
+_saved = _saved[_saved["pinned"].astype(bool)] if not _saved.empty else pd.DataFrame()
+
+if not _saved.empty:
+    st.markdown("#### Saved Analyses")
+    for _, srow in _saved.iterrows():
+        sid = int(srow["id"])
+        s_a = srow["variable_a"]; s_b = srow["variable_b"]
+        s_r2 = float(srow["r_squared"]) if srow["r_squared"] is not None else 0
+        s_atype = srow["analysis_type"]
+        s_date  = pd.Timestamp(srow["calculated_at"]).strftime("%Y-%m-%d")
+        s_name  = f"{s_a} → {s_b}" if s_b else s_a
+
+        with st.container(border=True):
+            rc1, rc2, rc3 = st.columns([5, 2, 2])
+            rc1.markdown(f"**{s_name}**  \n{s_atype} · {s_date}")
+            rc2.metric("R²", f"{s_r2:.3f}")
+            bc1, bc2 = rc3.columns(2)
+            if bc1.button("View", key=f"sv_view_{sid}"):
+                st.session_state.saved_view_id = sid
+                st.session_state.result = None
+                st.rerun()
+            if bc2.button("✕", key=f"sv_del_{sid}"):
+                analysis.delete_finding(sid)
+                get_findings.clear()
+                if st.session_state.saved_view_id == sid:
+                    st.session_state.saved_view_id = None
+                st.rerun()
+    st.divider()
+
+# ── Saved analysis replay ─────────────────────────────────────
+if st.session_state.saved_view_id is not None:
+    _sv_row = _saved[_saved["id"] == st.session_state.saved_view_id]
+    if _sv_row.empty:
+        st.session_state.saved_view_id = None
+    else:
+        _sv = _sv_row.iloc[0]
+        _sv_a  = _sv["variable_a"]; _sv_b = _sv["variable_b"]
+        _sv_lag = int(_sv["lag_days"]) if _sv["lag_days"] else 0
+        _sv_atype = _sv["analysis_type"]
+        _sv_cutoff = pd.Timestamp(_sv["calculated_at"]).normalize()
+        _sv_al = col_label(_sv_a); _sv_bl = col_label(_sv_b) if _sv_b else None
+
+        if st.button("← Back to Explorer"):
+            st.session_state.saved_view_id = None
+            st.rerun()
+
+        st.markdown(f"### {_sv_a} {'→ ' + _sv_b if _sv_b else ''}  \n"
+                    f"<span style='opacity:0.6'>{_sv_atype} · saved {_sv_cutoff.strftime('%Y-%m-%d')}</span>",
+                    unsafe_allow_html=True)
+
+        _hist = get_data(0)
+        _hist = _hist[_hist.index <= _sv_cutoff]
+
+        with st.spinner("Reconstructing…"):
+            if   _sv_atype == "Pearson Correlation":  _sr = analysis.pearson_correlation(_hist, _sv_a, _sv_b)
+            elif _sv_atype == "Spearman Correlation": _sr = analysis.spearman_correlation(_hist, _sv_a, _sv_b)
+            elif _sv_atype == "Lagged Correlation":   _sr = analysis.lagged_correlation(_hist, _sv_a, _sv_b, _sv_lag)
+            elif _sv_atype == "30-Day Trend (OLS)":   _sr = analysis.ols_trend(_hist, _sv_a)
+            elif _sv_atype == "Rolling Average":       _sr = analysis.rolling_avg_correlation(_hist, _sv_a, _sv_b, 7)
+            else: _sr = {"error": f"Chart replay not supported for {_sv_atype}"}
+
+        if "error" in _sr:
+            st.warning(_sr["error"])
+        else:
+            stat_bar(_sr.get("r2"), _sr.get("p_value"), _sr.get("coefficient"), _sr.get("n"), _sr.get("label"))
+            if _sv_atype in ("Pearson Correlation", "Spearman Correlation"):
+                st.plotly_chart(scatter_ols(_sr["series_a"], _sr["series_b"],
+                    _sr["coefficient"], _sr["intercept"], _sv_al, _sv_bl), use_container_width=True)
+            elif _sv_atype == "Lagged Correlation":
+                st.plotly_chart(scatter_ols(_sr["series_a"], _sr["series_b"],
+                    _sr["coefficient"], _sr["intercept"],
+                    f"{_sv_al} (day 0)", f"{_sv_bl} (+{_sv_lag}d)"), use_container_width=True)
+            elif _sv_atype == "30-Day Trend (OLS)":
+                _fig = go.Figure()
+                _fig.add_trace(go.Scatter(x=_sr["series"].index, y=_sr["series"].values,
+                    mode="lines+markers", name=_sv_al, line=dict(color=BLUE), marker=dict(size=5)))
+                _fig.add_trace(go.Scatter(x=_sr["fitted"].index, y=_sr["fitted"].values,
+                    mode="lines", name="Trend", line=dict(color=GREEN, dash="dash", width=2)))
+                _fig.update_layout(xaxis_title="Date", yaxis_title=_sv_al, height=450, margin=dict(t=20))
+                st.plotly_chart(_fig, use_container_width=True)
+            elif _sv_atype == "Rolling Average":
+                _fig = make_subplots(specs=[[{"secondary_y": True}]])
+                _fig.add_trace(go.Scatter(x=_sr["series_a"].index, y=_sr["series_a"].values,
+                    name=_sv_al, line=dict(color=BLUE)), secondary_y=False)
+                _fig.add_trace(go.Scatter(x=_sr["series_b"].index, y=_sr["series_b"].values,
+                    name=_sv_bl, line=dict(color=ORANGE)), secondary_y=True)
+                _fig.update_layout(height=450, margin=dict(t=20))
+                st.plotly_chart(_fig, use_container_width=True)
+        st.stop()
 
 result = st.session_state.result; rtype = st.session_state.result_type; meta = st.session_state.result_meta
 
