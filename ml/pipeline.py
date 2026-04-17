@@ -4,7 +4,7 @@ Cortex ML — Component 5: Pipeline Orchestrator
 Runs the full ML pipeline end-to-end in the correct order:
     1. data_builder      — load and transform data
     2. wellness_score    — compute daily target scores
-    2.5 outcome_evaluator — score prior recs whose 14-day post-window has elapsed
+    2.5 outcome_evaluator — score prior recs whose 7-day post-window has elapsed
     3. model_trainer     — train XGBoost model
     4. stack_optimiser   — find optimal activity targets
 

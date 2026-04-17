@@ -14,7 +14,7 @@ Each Sunday it runs five stages in sequence:
 2. **Computes a daily wellness score** (0–100) as a weighted composite of
    your sleep and cardiovascular metrics, normalised entirely to your own
    personal range — no population benchmarks
-3. **Evaluates past recommendations** whose 14-day follow-up window has
+3. **Evaluates past recommendations** whose 7-day follow-up window has
    now elapsed — scoring how well actual behaviour matched the targets
    and how accurate the predicted wellness delta turned out to be
 4. **Trains an XGBoost model** to predict that score from yesterday's
@@ -33,7 +33,7 @@ the existing Fitbit / Cronometer pipeline.
 |---|---|
 | `data_builder.py` | Loads and transforms data; lags inputs by 1 day |
 | `wellness_score.py` | Computes the composite 0–100 wellness score |
-| `outcome_evaluator.py` | Scores past recs after their 14-day follow-up window |
+| `outcome_evaluator.py` | Scores past recs after their 7-day follow-up window |
 | `model_trainer.py` | Trains and evaluates the XGBoost model |
 | `stack_optimiser.py` | Finds optimal activity targets via differential evolution |
 | `pipeline.py` | Orchestrates all stages; entry point for GitHub Actions |
@@ -92,12 +92,12 @@ DATABASE_URL=your_url python ml/stack_optimiser.py
 
 ## Closing the loop
 
-Each pipeline run evaluates any recommendation whose 14-day follow-up
+Each pipeline run evaluates any recommendation whose 7-day follow-up
 window has fully elapsed. For every such rec it writes one row to
 `ml_recommendation_outcomes` capturing:
 
-- `baseline_wellness_avg` — mean wellness in the 14 days **before** the rec
-- `outcome_wellness_avg`  — mean wellness in the 14 days **after** the rec
+- `baseline_wellness_avg` — mean wellness in the 7 days **before** the rec
+- `outcome_wellness_avg`  — mean wellness in the 7 days **after** the rec
 - `actual_delta` vs `predicted_delta` — model calibration signal
 - `adherence_overall` — importance-weighted 0–1 score of how closely the
   user's actual intake/activity matched the recommended targets
@@ -107,7 +107,7 @@ window has fully elapsed. For every such rec it writes one row to
 Adherence per metric is `max(0, 1 − min(1, |actual − recommended| /
 |recommended|))`. Metrics whose direction was `maintain` get full credit
 for being within ±5 % of the target. Outcomes appear on the
-Recommendations page once at least one rec is 14 days old; a calibration
+Recommendations page once at least one rec is 7 days old; a calibration
 chart appears once three are.
 
 ## Adding supplements (future)

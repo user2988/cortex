@@ -1052,8 +1052,8 @@ if page == "Recommendations":
     if outcomes:
         st.divider()
         st.markdown("#### How prior recommendations played out")
-        st.caption("Each rec is evaluated 14 days after it was issued — "
-                   "wellness delta measured against the 14 days before.")
+        st.caption("Each rec is evaluated 7 days after it was issued — "
+                   "wellness delta measured against the 7 days before.")
 
         latest = outcomes[0]
         o1, o2, o3 = st.columns(3)

@@ -1,17 +1,17 @@
 """
 Cortex ML — Component 6: Outcome Evaluator
 
-Closes the learning loop. For each mature recommendation (≥14 days old)
-that has not yet been evaluated, this module compares the 14 days of
-wellness before the recommendation to the 14 days after, and measures
+Closes the learning loop. For each mature recommendation (≥7 days old)
+that has not yet been evaluated, this module compares the 7 days of
+wellness before the recommendation to the 7 days after, and measures
 how closely the user's actual behaviour matched the recommended targets.
 
 Outputs
 -------
 One row per mature recommendation is written to `ml_recommendation_outcomes`
 containing:
-    - baseline_wellness_avg  : mean wellness in the 14 days before run_at
-    - outcome_wellness_avg   : mean wellness in the 14 days after run_at
+    - baseline_wellness_avg  : mean wellness in the 7 days before run_at
+    - outcome_wellness_avg   : mean wellness in the 7 days after run_at
     - actual_delta           : outcome − baseline
     - predicted_delta        : predicted_wellness − current_wellness_avg
                                (from the rec itself)
@@ -46,8 +46,8 @@ from datetime import datetime, timedelta, timezone
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
-WINDOW_DAYS       = 14     # baseline and outcome window length
-MIN_OUTCOME_DAYS  = 7      # require at least this many scored days in the post-window
+WINDOW_DAYS       = 7      # baseline and outcome window length
+MIN_OUTCOME_DAYS  = 4      # require at least this many scored days in the post-window
 MAINTAIN_TOL      = 0.05   # ±5 % counts as full adherence for "maintain" metrics
 EPS               = 1e-9
 
@@ -217,7 +217,7 @@ def _window_avg(scores: pd.Series, start_date, end_date) -> tuple[float | None, 
 
 def evaluate(scores: pd.Series) -> int:
     """
-    Write outcome rows for every recommendation whose 14-day post-window has
+    Write outcome rows for every recommendation whose 7-day post-window has
     now elapsed. Safe to re-run on every pipeline invocation.
 
     Parameters
