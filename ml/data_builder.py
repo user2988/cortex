@@ -18,21 +18,30 @@ import pandas as pd
 import numpy as np
 
 from db import get_conn
-from columns import OUTPUT_COLS, ACTIVITY_COLS, NUTRITION_COLS  # noqa: F401 — re-exported
+from columns import (
+    OUTPUT_COLS,
+    ACTIVITY_COLS,   # noqa: F401 — re-exported for outcome_evaluator back-compat
+    NUTRITION_COLS,  # noqa: F401 — re-exported for outcome_evaluator back-compat
+    ML_NUTRITION_PANEL,
+    ML_ACTIVITY_PANEL,
+)
+
+# Model inputs — narrow panel. The full NUTRITION_COLS/ACTIVITY_COLS
+# lists are still logged to the DB, but only these features enter the
+# model. Panel definition and rationale live in columns.py.
+MODEL_NUTRITION_COLS = ML_NUTRITION_PANEL
+MODEL_ACTIVITY_COLS  = ML_ACTIVITY_PANEL
 
 # Micronutrients with slow-acting effects — stored in tissue, build up/deplete
 # over days to weeks. Smoothed with a 7-day rolling average before lagging so
 # the model sees the accumulated exposure level rather than a single-day spike.
+# Intersected with MODEL_NUTRITION_COLS at apply time so no work is wasted on
+# columns the model doesn't see.
 SLOW_MICRONUTRIENTS = [
-    # Fat-soluble vitamins (stored in adipose/liver)
-    "vitamin_a_mcg", "vitamin_d_iu", "vitamin_e_mg", "vitamin_k_mcg",
-    # Omega fatty acids (incorporated into cell membranes over 1-4 weeks)
-    "omega3_mg", "omega6_mg", "ala_mg", "epa_mg", "dha_mg",
-    # Minerals with meaningful storage pools
-    "calcium_mg", "iron_mg", "magnesium_mg", "zinc_mg",
-    "selenium_mcg", "copper_mg", "manganese_mg",
-    # B vitamins with hepatic storage
-    "vitamin_b12_mcg", "folate_mcg", "biotin_mcg",
+    "vitamin_d_iu",       # fat-soluble, adipose/liver storage
+    "omega3_mg",          # incorporated into cell membranes over 1–4 weeks
+    "iron_mg", "magnesium_mg",    # meaningful body pools
+    "vitamin_b12_mcg", "folate_mcg",  # hepatic storage
 ]
 
 # Maximum fraction of feature columns that may be null before a row is dropped.
@@ -53,9 +62,9 @@ def _load_raw() -> pd.DataFrame:
     columns present. Rows where sleep_duration_min == 0 are excluded
     (device failure / no-wear nights).
     """
-    bio_cols = OUTPUT_COLS + ACTIVITY_COLS
+    bio_cols = OUTPUT_COLS + MODEL_ACTIVITY_COLS
     bio_select = ", ".join(f"b.{c}" for c in bio_cols)
-    nut_select = ", ".join(f"n.{c}" for c in NUTRITION_COLS)
+    nut_select = ", ".join(f"n.{c}" for c in MODEL_NUTRITION_COLS)
 
     sql = f"""
         SELECT b.date, {bio_select}, {nut_select}
@@ -243,8 +252,8 @@ def build() -> pd.DataFrame:
     df = _apply_rolling(df, SLOW_MICRONUTRIENTS, window=7)
 
     # Lag nutrition and activity inputs
-    df = _lag_cols(df, NUTRITION_COLS, lag=1)
-    df = _lag_cols(df, ACTIVITY_COLS, lag=1)
+    df = _lag_cols(df, MODEL_NUTRITION_COLS, lag=1)
+    df = _lag_cols(df, MODEL_ACTIVITY_COLS, lag=1)
 
     # First row is always all-null for lagged columns — drop it
     df = df.iloc[1:]

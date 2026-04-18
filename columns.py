@@ -82,3 +82,40 @@ NUTRITION_COLS = [
     "cystine_g", "glutamic_acid_g", "glycine_g", "proline_g",
     "serine_g", "tyrosine_g", "hydroxyproline_g",
 ]
+
+# ─────────────────────────────────────────────────────────────
+# ML FEATURE PANELS
+# ─────────────────────────────────────────────────────────────
+#
+# Curated inputs for the wellness model. The full NUTRITION_COLS /
+# ACTIVITY_COLS lists above remain the storage schema — we log everything
+# Cronometer and Fitbit provide — but the model only sees the panel below.
+#
+# Rationale: with ~60–90 training rows, feeding 80 features to XGBoost is
+# p ≈ N. Most of the dropped columns (trace minerals, individual amino
+# acids, fat subtypes, most B vitamins) either lack mechanistic evidence
+# for sleep/HRV/recovery on a 1–7 day horizon or are near-collinear with
+# a macro already in the panel (e.g. tryptophan ↔ protein_g).
+#
+# Every output in OUTPUT_COLS has at least three inputs below with
+# published mechanism:
+#   - Sleep (duration/efficiency/deep/REM): magnesium, vit D, omega-3,
+#     fibre, sugar, carbs, alcohol, caffeine, protein
+#   - HRV / RHR: alcohol, caffeine, calories, protein, omega-3, water,
+#     sodium, potassium, magnesium
+#   - SpO2 / respiratory rate: iron, B12, folate, alcohol
+#   - VO2 max: activity panel + iron, B12, protein, calories
+
+ML_NUTRITION_PANEL = [
+    "calories_in", "protein_g", "carbs_g", "fat_g",
+    "fibre_g", "sugar_g", "water_ml",
+    "sodium_mg", "potassium_mg", "magnesium_mg", "iron_mg",
+    "vitamin_d_iu", "vitamin_b12_mcg", "folate_mcg",
+    "omega3_mg",
+    "alcohol_units", "caffeine_mg",
+]
+
+ML_ACTIVITY_PANEL = [
+    "steps", "active_zone_min", "very_active_min",
+    "sedentary_min", "distance_km",
+]
