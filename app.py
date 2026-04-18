@@ -1,6 +1,7 @@
 """Cortex — Insights, Experiments & Explorer (v2)"""
 
 import os
+from datetime import datetime, date, time, timedelta
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -10,6 +11,7 @@ import statsmodels.api as sm
 
 import analysis
 from db import get_conn
+from columns import MEDICATION_CATEGORIES
 
 st.set_page_config(page_title="Cortex", layout="wide", page_icon="📊")
 
@@ -228,6 +230,129 @@ def bust_cache():
     get_data.clear(); get_findings.clear()
     get_experiments.clear(); get_targets.clear()
     get_ml_recommendation.clear(); get_ml_outcomes.clear()
+    get_recent_glucose.clear(); get_recent_meals.clear(); get_medications.clear()
+
+# ─────────────────────────────────────────────────────────────
+# LOG — manual-entry DB helpers (v4 glucose pivot)
+# ─────────────────────────────────────────────────────────────
+
+def insert_glucose_reading(ts, mg_dl, source, meal_id=None, notes=None):
+    """Insert a glucose reading; returns the new id or None on conflict."""
+    conn = get_conn()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO glucose_readings (ts, mg_dl, source, meal_id, notes)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (ts, source) DO NOTHING
+                    RETURNING id
+                """, (ts, mg_dl, source, meal_id, notes))
+                row = cur.fetchone()
+                return row[0] if row else None
+    finally:
+        conn.close()
+
+def insert_meal(ts, name, carbs_g, protein_g, fat_g, fibre_g, sugar_g, calories, notes):
+    conn = get_conn()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO meals
+                        (ts, name, carbs_g, protein_g, fat_g, fibre_g, sugar_g, calories, notes)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                """, (ts, name, carbs_g, protein_g, fat_g, fibre_g, sugar_g, calories, notes))
+                return cur.fetchone()[0]
+    finally:
+        conn.close()
+
+def insert_medication(name, category, dose_text, start_date, end_date, notes):
+    conn = get_conn()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO medications
+                        (name, category, dose_text, start_date, end_date, notes)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                """, (name, category, dose_text, start_date, end_date, notes))
+                return cur.fetchone()[0]
+    finally:
+        conn.close()
+
+@st.cache_data(ttl=60)
+def get_recent_glucose(limit: int = 15):
+    try:
+        conn = get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT ts, mg_dl, source, meal_id
+                    FROM glucose_readings
+                    ORDER BY ts DESC
+                    LIMIT %s
+                """, (limit,))
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f"[app] get_recent_glucose failed: {e}")
+        return []
+    return [
+        {"ts": r[0], "mg_dl": float(r[1]), "source": r[2], "meal_id": r[3]}
+        for r in rows
+    ]
+
+@st.cache_data(ttl=60)
+def get_recent_meals(limit: int = 15):
+    try:
+        conn = get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id, ts, name, carbs_g, protein_g, fat_g, fibre_g, sugar_g, calories
+                    FROM meals
+                    ORDER BY ts DESC
+                    LIMIT %s
+                """, (limit,))
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f"[app] get_recent_meals failed: {e}")
+        return []
+    return [
+        {"id": r[0], "ts": r[1], "name": r[2],
+         "carbs_g": r[3], "protein_g": r[4], "fat_g": r[5],
+         "fibre_g": r[6], "sugar_g": r[7], "calories": r[8]}
+        for r in rows
+    ]
+
+@st.cache_data(ttl=60)
+def get_medications():
+    try:
+        conn = get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id, name, category, dose_text, start_date, end_date, notes
+                    FROM medications
+                    ORDER BY (end_date IS NULL) DESC, start_date DESC
+                """)
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f"[app] get_medications failed: {e}")
+        return []
+    return [
+        {"id": r[0], "name": r[1], "category": r[2], "dose_text": r[3],
+         "start_date": r[4], "end_date": r[5], "notes": r[6]}
+        for r in rows
+    ]
 
 # ─────────────────────────────────────────────────────────────
 # HELPERS
@@ -296,7 +421,7 @@ if "exp_detail_id" not in st.session_state:
 if "saved_view_id" not in st.session_state:
     st.session_state.saved_view_id = None
 
-page = st.sidebar.radio("", ["Insights", "Experiments", "Explorer", "Recommendations"],
+page = st.sidebar.radio("", ["Insights", "Experiments", "Explorer", "Recommendations", "Log"],
                          key="page", label_visibility="collapsed")
 
 if page != "Experiments":
@@ -1205,3 +1330,194 @@ if page == "Recommendations":
             yaxis=dict(autorange="reversed"),
         )
         st.plotly_chart(fig, use_container_width=True)
+
+
+# ─────────────────────────────────────────────────────────────
+# LOG PAGE — manual entry for glucose, meals, medications (v4)
+# ─────────────────────────────────────────────────────────────
+
+if page == "Log":
+    st.title("Log")
+    st.caption("Manual entry until CGM ingest lands. Every value here trains your model.")
+
+    tab_glu, tab_meal, tab_med = st.tabs(["Glucose", "Meals", "Medications"])
+
+    # ── Glucose tab ──────────────────────────────────────────
+    with tab_glu:
+        st.markdown("#### New glucose reading")
+        with st.form("glucose_form", clear_on_submit=True):
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                g_date = st.date_input("Date", value=date.today())
+                g_time = st.time_input("Time", value=datetime.now().time().replace(second=0, microsecond=0))
+            with col2:
+                g_mgdl = st.number_input("mg/dL", min_value=20.0, max_value=600.0,
+                                         step=1.0, value=95.0, format="%.1f")
+                g_kind = st.radio("Type",
+                                  ["Fasting", "Post-meal", "Other"],
+                                  horizontal=True, key="g_kind")
+
+            meal_map = {}
+            linked_meal_id = None
+            if g_kind == "Post-meal":
+                recent = get_recent_meals(limit=10)
+                if recent:
+                    meal_map = {
+                        f"{m['ts'].strftime('%-d %b %H:%M')} — {m['name'] or 'meal'}": m["id"]
+                        for m in recent
+                    }
+                    meal_choice = st.selectbox(
+                        "Link to meal",
+                        ["(none)"] + list(meal_map.keys()),
+                        help="Linking lets the model score your response to that specific meal."
+                    )
+                    linked_meal_id = meal_map.get(meal_choice)
+                else:
+                    st.caption("No recent meals to link — log one in the Meals tab first.")
+
+            g_notes = st.text_input("Notes (optional)", value="")
+
+            if st.form_submit_button("Save reading", type="primary"):
+                source_map = {"Fasting": "manual_fasting",
+                              "Post-meal": "manual_postmeal",
+                              "Other": "manual"}
+                ts = datetime.combine(g_date, g_time)
+                new_id = insert_glucose_reading(
+                    ts=ts,
+                    mg_dl=float(g_mgdl),
+                    source=source_map[g_kind],
+                    meal_id=linked_meal_id,
+                    notes=g_notes or None,
+                )
+                if new_id:
+                    st.success(f"Saved — {g_mgdl:.0f} mg/dL at {ts.strftime('%-d %b %H:%M')}")
+                    bust_cache()
+                else:
+                    st.warning("A reading with that exact timestamp and source already exists.")
+
+        st.divider()
+        st.markdown("#### Recent readings")
+        recent = get_recent_glucose(limit=15)
+        if not recent:
+            st.caption("No readings yet.")
+        else:
+            rdf = pd.DataFrame(recent)
+            rdf["ts"] = pd.to_datetime(rdf["ts"]).dt.tz_convert(None)
+            st.dataframe(
+                rdf.rename(columns={"ts": "When", "mg_dl": "mg/dL",
+                                    "source": "Source", "meal_id": "Meal"}),
+                hide_index=True, use_container_width=True,
+            )
+
+    # ── Meals tab ────────────────────────────────────────────
+    with tab_meal:
+        st.markdown("#### New meal")
+        with st.form("meal_form", clear_on_submit=True):
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                m_date = st.date_input("Date", value=date.today(), key="m_date")
+                m_time = st.time_input(
+                    "Time",
+                    value=datetime.now().time().replace(second=0, microsecond=0),
+                    key="m_time",
+                )
+                m_name = st.text_input("Name", placeholder="e.g. oatmeal + blueberries")
+            with col2:
+                m_carbs   = st.number_input("Carbs (g)",   min_value=0.0, step=1.0, value=0.0)
+                m_protein = st.number_input("Protein (g)", min_value=0.0, step=1.0, value=0.0)
+                m_fat     = st.number_input("Fat (g)",     min_value=0.0, step=1.0, value=0.0)
+
+            col3, col4, col5 = st.columns(3)
+            m_fibre  = col3.number_input("Fibre (g)",    min_value=0.0, step=1.0, value=0.0)
+            m_sugar  = col4.number_input("Sugar (g)",    min_value=0.0, step=1.0, value=0.0)
+            m_cal    = col5.number_input("Calories",     min_value=0.0, step=10.0, value=0.0)
+
+            m_notes = st.text_input("Notes (optional)", value="", key="m_notes")
+
+            if st.form_submit_button("Save meal", type="primary"):
+                ts = datetime.combine(m_date, m_time)
+                new_id = insert_meal(
+                    ts=ts,
+                    name=m_name or None,
+                    carbs_g=m_carbs  or None,
+                    protein_g=m_protein or None,
+                    fat_g=m_fat    or None,
+                    fibre_g=m_fibre  or None,
+                    sugar_g=m_sugar  or None,
+                    calories=m_cal   or None,
+                    notes=m_notes    or None,
+                )
+                st.success(f"Saved meal #{new_id} at {ts.strftime('%-d %b %H:%M')}")
+                bust_cache()
+
+        st.divider()
+        st.markdown("#### Recent meals")
+        recent = get_recent_meals(limit=15)
+        if not recent:
+            st.caption("No meals logged yet.")
+        else:
+            mdf = pd.DataFrame(recent)
+            mdf["ts"] = pd.to_datetime(mdf["ts"]).dt.tz_convert(None)
+            st.dataframe(
+                mdf.drop(columns=["id"]).rename(columns={
+                    "ts": "When", "name": "Name",
+                    "carbs_g": "Carbs", "protein_g": "Protein", "fat_g": "Fat",
+                    "fibre_g": "Fibre", "sugar_g": "Sugar", "calories": "Cal",
+                }),
+                hide_index=True, use_container_width=True,
+            )
+
+    # ── Medications tab ──────────────────────────────────────
+    with tab_med:
+        st.info(
+            "Log what you take so the model reads your glucose correctly. "
+            "**Cortex never recommends medication changes — that's between you and your doctor.**",
+            icon="ℹ️",
+        )
+
+        st.markdown("#### Add regimen")
+        with st.form("med_form", clear_on_submit=True):
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                med_name     = st.text_input("Name", placeholder="e.g. Metformin, Ozempic, Magnesium glycinate")
+                med_category = st.selectbox("Category", MEDICATION_CATEGORIES)
+                med_dose     = st.text_input("Dose (free text)", placeholder="e.g. 500mg, 0.5mg weekly")
+            with col2:
+                med_start    = st.date_input("Start date", value=date.today(), key="med_start")
+                med_ongoing  = st.checkbox("Still taking", value=True)
+                med_end      = None
+                if not med_ongoing:
+                    med_end = st.date_input("End date", value=date.today(), key="med_end")
+
+            med_notes = st.text_input("Notes (optional)", value="", key="med_notes")
+
+            if st.form_submit_button("Save regimen", type="primary"):
+                if not med_name.strip():
+                    st.warning("Name is required.")
+                else:
+                    new_id = insert_medication(
+                        name=med_name.strip(),
+                        category=med_category,
+                        dose_text=med_dose or None,
+                        start_date=med_start,
+                        end_date=med_end,
+                        notes=med_notes or None,
+                    )
+                    st.success(f"Saved regimen #{new_id}: {med_name} ({med_category})")
+                    bust_cache()
+
+        st.divider()
+        st.markdown("#### Active and past regimens")
+        meds = get_medications()
+        if not meds:
+            st.caption("No medications logged yet.")
+        else:
+            for m in meds:
+                active = m["end_date"] is None
+                with st.container(border=True):
+                    c1, c2, c3 = st.columns([3, 2, 2])
+                    c1.markdown(f"**{m['name']}**  \n`{m['category']}`")
+                    c2.caption(m["dose_text"] or "—")
+                    status = f"Since {m['start_date']:%-d %b %Y}" if active \
+                             else f"{m['start_date']:%-d %b %Y} → {m['end_date']:%-d %b %Y}"
+                    c3.caption(("🟢 Active · " if active else "⚪ Ended · ") + status)

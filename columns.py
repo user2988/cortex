@@ -119,3 +119,41 @@ ML_ACTIVITY_PANEL = [
     "steps", "active_zone_min", "very_active_min",
     "sedentary_min", "distance_km",
 ]
+
+# ─────────────────────────────────────────────────────────────
+# GLUCOSE (v4 — pivot to glucose-targeted product)
+# ─────────────────────────────────────────────────────────────
+#
+# Daily glucose aggregates derived from the `glucose_readings` table
+# by ml/glucose_builder.py. These become the model's OUTPUT_COLS in
+# the glucose-targeted pipeline — what we predict and optimise.
+#
+# Designed to degrade gracefully with sparse manual data:
+#   - fasting_glucose_mg_dl: single morning reading -> populated
+#   - mean / TIR / CV:      >=3 readings/day needed -> NaN otherwise
+#   - post_meal_peak_avg:   needs meal+reading pair -> NaN otherwise
+#   - post_meal_auc_avg:    needs CGM-dense data   -> Phase 2
+#   - dawn_delta:           needs overnight curve  -> Phase 2
+GLUCOSE_OUTPUT_COLS = [
+    "fasting_glucose_mg_dl",      # first wake reading before any meal
+    "mean_glucose_mg_dl",         # daily mean across all readings
+    "time_in_range_pct",          # % readings in 70-140 mg/dL
+    "glucose_cv_pct",             # SD/mean * 100 (variability)
+    "post_meal_peak_avg_mg_dl",   # avg peak across meals (manual: single 1h reading)
+    "post_meal_auc_avg",          # avg 2h iAUC across meals (CGM only)
+    "dawn_phenomenon_delta",      # fasting - overnight nadir (CGM only)
+]
+
+# Medication regimens are stored as daily binary state features
+# (on_metformin, on_glp1, ...) so the model can account for them
+# without dose-response modelling. Cortex never recommends med
+# changes — these are exogenous context only.
+MEDICATION_CATEGORIES = [
+    "metformin",
+    "glp1",          # ozempic, wegovy, mounjaro, zepbound
+    "insulin",
+    "sglt2",         # jardiance, farxiga
+    "sulfonylurea",  # glipizide, glyburide
+    "supplement",    # berberine, magnesium, cinnamon, inositol, etc.
+    "other",
+]

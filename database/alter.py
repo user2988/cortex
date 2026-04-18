@@ -110,6 +110,44 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS idx_ml_recs_run_at        ON ml_recommendations(run_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_ml_outcomes_evaluated ON ml_recommendation_outcomes(evaluated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_ml_pipeline_log       ON ml_pipeline_log(run_at DESC)",
+    # v4: glucose pipeline tables
+    # Order matters — glucose_readings.meal_id FKs meals(id).
+    """CREATE TABLE IF NOT EXISTS meals (
+        id          SERIAL PRIMARY KEY,
+        ts          TIMESTAMPTZ   NOT NULL,
+        name        TEXT,
+        carbs_g     NUMERIC(8, 2),
+        protein_g   NUMERIC(8, 2),
+        fat_g       NUMERIC(8, 2),
+        fibre_g     NUMERIC(8, 2),
+        sugar_g     NUMERIC(8, 2),
+        calories    NUMERIC(8, 2),
+        notes       TEXT,
+        created_at  TIMESTAMPTZ   DEFAULT NOW()
+    )""",
+    """CREATE TABLE IF NOT EXISTS glucose_readings (
+        id          SERIAL PRIMARY KEY,
+        ts          TIMESTAMPTZ   NOT NULL,
+        mg_dl       NUMERIC(5, 1) NOT NULL,
+        source      TEXT          NOT NULL,
+        meal_id     INTEGER       REFERENCES meals(id) ON DELETE SET NULL,
+        notes       TEXT,
+        created_at  TIMESTAMPTZ   DEFAULT NOW(),
+        UNIQUE (ts, source)
+    )""",
+    """CREATE TABLE IF NOT EXISTS medications (
+        id          SERIAL PRIMARY KEY,
+        name        TEXT          NOT NULL,
+        category    TEXT          NOT NULL,
+        dose_text   TEXT,
+        start_date  DATE          NOT NULL,
+        end_date    DATE,
+        notes       TEXT,
+        created_at  TIMESTAMPTZ   DEFAULT NOW()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_glucose_ts        ON glucose_readings(ts DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_meals_ts          ON meals(ts DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_medications_start ON medications(start_date DESC)",
 ]
 
 def run():

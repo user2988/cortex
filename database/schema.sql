@@ -264,6 +264,55 @@ CREATE TABLE IF NOT EXISTS ml_pipeline_log (
 
 
 -- ─────────────────────────────────────────────────────────────
+-- v4: Glucose pipeline tables
+-- Supports both CGM-dense data (~288 readings/day) and sparse
+-- manual entry (1–4 readings/day). Meals are event-level so we
+-- can later align them with glucose curves for per-meal response
+-- modelling. Medications are stored as regimens (start/end date)
+-- rather than per-dose events — the model only needs to know
+-- "was the user on X on day Y" as a binary state flag.
+-- Cortex never recommends medication changes; meds are exogenous
+-- context for the model, not a lever the optimiser can pull.
+-- ─────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS meals (
+    id          SERIAL PRIMARY KEY,
+    ts          TIMESTAMPTZ   NOT NULL,
+    name        TEXT,
+    carbs_g     NUMERIC(8, 2),
+    protein_g   NUMERIC(8, 2),
+    fat_g       NUMERIC(8, 2),
+    fibre_g     NUMERIC(8, 2),
+    sugar_g     NUMERIC(8, 2),
+    calories    NUMERIC(8, 2),
+    notes       TEXT,
+    created_at  TIMESTAMPTZ   DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS glucose_readings (
+    id          SERIAL PRIMARY KEY,
+    ts          TIMESTAMPTZ   NOT NULL,
+    mg_dl       NUMERIC(5, 1) NOT NULL,
+    source      TEXT          NOT NULL,   -- manual_fasting, manual_postmeal, cgm_stelo, cgm_dexcom, etc.
+    meal_id     INTEGER       REFERENCES meals(id) ON DELETE SET NULL,
+    notes       TEXT,
+    created_at  TIMESTAMPTZ   DEFAULT NOW(),
+    UNIQUE (ts, source)
+);
+
+CREATE TABLE IF NOT EXISTS medications (
+    id          SERIAL PRIMARY KEY,
+    name        TEXT          NOT NULL,
+    category    TEXT          NOT NULL,   -- metformin | glp1 | insulin | sglt2 | sulfonylurea | supplement | other
+    dose_text   TEXT,
+    start_date  DATE          NOT NULL,
+    end_date    DATE,                      -- null = ongoing
+    notes       TEXT,
+    created_at  TIMESTAMPTZ   DEFAULT NOW()
+);
+
+
+-- ─────────────────────────────────────────────────────────────
 -- Indexes for common query patterns
 -- ─────────────────────────────────────────────────────────────
 
@@ -276,3 +325,6 @@ CREATE INDEX IF NOT EXISTS idx_ml_model_runs_run_at  ON ml_model_runs(run_at DES
 CREATE INDEX IF NOT EXISTS idx_ml_recs_run_at        ON ml_recommendations(run_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ml_outcomes_evaluated ON ml_recommendation_outcomes(evaluated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ml_pipeline_log       ON ml_pipeline_log(run_at DESC);
+CREATE INDEX IF NOT EXISTS idx_glucose_ts            ON glucose_readings(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_meals_ts              ON meals(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_medications_start     ON medications(start_date DESC);
