@@ -9,6 +9,7 @@ from plotly.subplots import make_subplots
 import statsmodels.api as sm
 
 import analysis
+from db import get_conn
 
 st.set_page_config(page_title="Cortex", layout="wide", page_icon="📊")
 
@@ -140,12 +141,9 @@ def get_targets():
 @st.cache_data(ttl=300)
 def get_ml_recommendation():
     """Return the most recent ML recommendation row, or None."""
-    import psycopg2, json
-    DATABASE_URL = os.environ.get("DATABASE_URL")
-    if not DATABASE_URL:
-        return None
+    import json
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = get_conn()
         try:
             with conn.cursor() as cur:
                 cur.execute("""
@@ -173,18 +171,16 @@ def get_ml_recommendation():
             "test_r2":          float(row[6]) if row[6] is not None else None,
             "top_features":     row[7] if isinstance(row[7], list) else (json.loads(row[7]) if row[7] else []),
         }
-    except Exception:
+    except Exception as e:
+        print(f"[app] get_ml_recommendation failed: {e}")
         return None
 
 @st.cache_data(ttl=300)
 def get_ml_outcomes(limit: int = 12):
     """Return recent recommendation outcome rows, newest first, or []."""
-    import psycopg2, json
-    DATABASE_URL = os.environ.get("DATABASE_URL")
-    if not DATABASE_URL:
-        return []
+    import json
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = get_conn()
         try:
             with conn.cursor() as cur:
                 cur.execute("""
@@ -203,7 +199,8 @@ def get_ml_outcomes(limit: int = 12):
                 rows = cur.fetchall()
         finally:
             conn.close()
-    except Exception:
+    except Exception as e:
+        print(f"[app] get_ml_outcomes failed: {e}")
         return []
 
     out = []

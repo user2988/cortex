@@ -200,11 +200,79 @@ CREATE TABLE IF NOT EXISTS targets (
 
 
 -- ─────────────────────────────────────────────────────────────
+-- ML pipeline tables
+-- Mirrored from ml/*.py _ensure_table() calls so schema.sql is the
+-- source of truth. Inline CREATE TABLE IF NOT EXISTS remain in each
+-- module as belt-and-braces — safe because they are idempotent.
+-- FK order matters: recommendations references model_runs,
+-- outcomes references recommendations.
+-- ─────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS ml_model_runs (
+    id              SERIAL PRIMARY KEY,
+    run_at          TIMESTAMPTZ NOT NULL,
+    confidence_tier TEXT        NOT NULL,
+    n_rows          INTEGER     NOT NULL,
+    n_features      INTEGER     NOT NULL,
+    train_r2        NUMERIC(6, 4),
+    test_r2         NUMERIC(6, 4),
+    test_mae        NUMERIC(8, 4),
+    test_rmse       NUMERIC(8, 4),
+    top_features    JSONB,
+    model_path      TEXT,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS ml_recommendations (
+    id                   SERIAL PRIMARY KEY,
+    run_at               TIMESTAMPTZ NOT NULL,
+    model_run_id         INTEGER REFERENCES ml_model_runs(id),
+    confidence_tier      TEXT        NOT NULL,
+    n_days_data          INTEGER     NOT NULL,
+    current_wellness_avg NUMERIC(6, 2),
+    predicted_wellness   NUMERIC(6, 2),
+    recommendations      JSONB       NOT NULL,
+    created_at           TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS ml_recommendation_outcomes (
+    id                     SERIAL PRIMARY KEY,
+    rec_id                 INTEGER NOT NULL UNIQUE
+                               REFERENCES ml_recommendations(id) ON DELETE CASCADE,
+    evaluated_at           TIMESTAMPTZ DEFAULT NOW(),
+    baseline_start         DATE,
+    baseline_end           DATE,
+    outcome_start          DATE,
+    outcome_end            DATE,
+    baseline_wellness_avg  NUMERIC(6, 2),
+    outcome_wellness_avg   NUMERIC(6, 2),
+    actual_delta           NUMERIC(6, 2),
+    predicted_delta        NUMERIC(6, 2),
+    adherence_overall      NUMERIC(4, 3),
+    per_metric             JSONB NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ml_pipeline_log (
+    id            SERIAL PRIMARY KEY,
+    run_at        TIMESTAMPTZ  NOT NULL,
+    status        TEXT         NOT NULL,
+    duration_sec  NUMERIC(8, 2),
+    stage         TEXT,
+    error_message TEXT,
+    created_at    TIMESTAMPTZ  DEFAULT NOW()
+);
+
+
+-- ─────────────────────────────────────────────────────────────
 -- Indexes for common query patterns
 -- ─────────────────────────────────────────────────────────────
 
-CREATE INDEX IF NOT EXISTS idx_biometrics_date  ON biometrics(date DESC);
-CREATE INDEX IF NOT EXISTS idx_nutrition_date   ON nutrition(date DESC);
-CREATE INDEX IF NOT EXISTS idx_weight_date      ON weight(date DESC);
-CREATE INDEX IF NOT EXISTS idx_findings_r2      ON findings(r_squared DESC);
-CREATE INDEX IF NOT EXISTS idx_experiments_date ON experiments(start_date DESC);
+CREATE INDEX IF NOT EXISTS idx_biometrics_date       ON biometrics(date DESC);
+CREATE INDEX IF NOT EXISTS idx_nutrition_date        ON nutrition(date DESC);
+CREATE INDEX IF NOT EXISTS idx_weight_date           ON weight(date DESC);
+CREATE INDEX IF NOT EXISTS idx_findings_r2           ON findings(r_squared DESC);
+CREATE INDEX IF NOT EXISTS idx_experiments_date      ON experiments(start_date DESC);
+CREATE INDEX IF NOT EXISTS idx_ml_model_runs_run_at  ON ml_model_runs(run_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ml_recs_run_at        ON ml_recommendations(run_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ml_outcomes_evaluated ON ml_recommendation_outcomes(evaluated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ml_pipeline_log       ON ml_pipeline_log(run_at DESC);

@@ -22,11 +22,9 @@ Exit codes
 1 — unexpected failure (logged to DB and stderr before exit)
 """
 
-import os
 import sys
 import time
 import traceback
-import psycopg2
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -34,8 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from ml import data_builder, wellness_score, outcome_evaluator, model_trainer, stack_optimiser
-
-DATABASE_URL = os.environ["DATABASE_URL"]
+from db import get_conn
 
 # ─────────────────────────────────────────────────────────────
 # PIPELINE LOG TABLE
@@ -56,7 +53,7 @@ CREATE TABLE IF NOT EXISTS ml_pipeline_log (
 
 def _ensure_log_table() -> None:
     """Create ml_pipeline_log if it does not already exist."""
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn:
             with conn.cursor() as cur:
@@ -84,7 +81,7 @@ def _log(
         VALUES (%s, %s, %s, %s, %s)
     """
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = get_conn()
         try:
             with conn:
                 with conn.cursor() as cur:

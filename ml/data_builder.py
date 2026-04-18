@@ -14,75 +14,11 @@ Conventions
 - Remaining nulls are imputed with each column's median
 """
 
-import os
-import psycopg2
 import pandas as pd
 import numpy as np
 
-DATABASE_URL = os.environ["DATABASE_URL"]
-
-# ─────────────────────────────────────────────────────────────
-# COLUMN DEFINITIONS
-# ─────────────────────────────────────────────────────────────
-
-# Biometric outputs — the target variables for the wellness score.
-# These are NEVER lagged; they are what the model learns to predict.
-OUTPUT_COLS = [
-    "sleep_duration_min",
-    "sleep_efficiency_pct",
-    "deep_sleep_min",
-    "rem_sleep_min",
-    "light_sleep_min",
-    "awake_min",
-    "time_in_bed_min",
-    "hrv_ms",
-    "hrv_deep_rmssd",
-    "rhr_bpm",
-    "spo2_avg_pct",
-    "spo2_min_pct",
-    "spo2_max_pct",
-    "respiratory_rate",
-    "vo2_max",
-]
-
-# Biometric inputs — activity metrics the user can influence.
-# Lagged 1 day: yesterday's activity predicts today's recovery.
-ACTIVITY_COLS = [
-    "steps",
-    "active_zone_min",
-    "very_active_min",
-    "fairly_active_min",
-    "lightly_active_min",
-    "sedentary_min",
-    "calories_burned",
-    "distance_km",
-    "time_in_fat_burn_min",
-    "time_in_cardio_min",
-    "time_in_peak_min",
-]
-
-# All nutrition input columns (excludes caffeine_last_time — non-numeric time string).
-NUTRITION_COLS = [
-    "calories_in", "protein_g", "carbs_g", "fat_g", "fibre_g",
-    "sugar_g", "sodium_mg", "water_ml",
-    "saturated_fat_g", "monounsaturated_fat_g", "polyunsaturated_fat_g",
-    "trans_fat_g", "cholesterol_mg",
-    "alcohol_units", "caffeine_mg",
-    "omega3_mg", "omega6_mg", "ala_mg", "epa_mg", "dha_mg",
-    "vitamin_a_mcg", "vitamin_d_iu", "vitamin_e_mg", "vitamin_k_mcg",
-    "vitamin_c_mg", "thiamine_mg", "riboflavin_mg", "niacin_mg",
-    "pantothenic_acid_mg", "vitamin_b6_mg", "biotin_mcg", "folate_mcg",
-    "vitamin_b12_mcg",
-    "calcium_mg", "iron_mg", "magnesium_mg", "phosphorus_mg",
-    "potassium_mg", "zinc_mg",
-    "selenium_mcg", "copper_mg", "manganese_mg", "chromium_mcg",
-    "iodine_mcg", "molybdenum_mcg",
-    "tryptophan_g", "threonine_g", "isoleucine_g", "leucine_g",
-    "lysine_g", "methionine_g", "phenylalanine_g", "valine_g",
-    "histidine_g", "alanine_g", "arginine_g", "aspartic_acid_g",
-    "cystine_g", "glutamic_acid_g", "glycine_g", "proline_g",
-    "serine_g", "tyrosine_g", "hydroxyproline_g",
-]
+from db import get_conn
+from columns import OUTPUT_COLS, ACTIVITY_COLS, NUTRITION_COLS  # noqa: F401 — re-exported
 
 # Micronutrients with slow-acting effects — stored in tissue, build up/deplete
 # over days to weeks. Smoothed with a 7-day rolling average before lagging so
@@ -128,7 +64,7 @@ def _load_raw() -> pd.DataFrame:
         ORDER BY b.date
     """
 
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute(sql)

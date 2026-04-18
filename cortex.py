@@ -12,9 +12,9 @@ import hashlib
 import secrets
 import webbrowser
 import requests
-import psycopg2
 
 from cronometer import run_nutrition_pipeline
+from db import get_conn
 
 from datetime import date, datetime, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -29,8 +29,6 @@ FITBIT_CLIENT_ID     = os.environ["FITBIT_CLIENT_ID"]
 FITBIT_CLIENT_SECRET = os.environ["FITBIT_CLIENT_SECRET"]
 FITBIT_REDIRECT_URI  = "http://localhost:8080/callback"
 TOKEN_FILE           = "fitbit_tokens.json"
-
-DATABASE_URL         = os.environ["DATABASE_URL"]
 
 
 # ─────────────────────────────────────────────────────────────
@@ -314,7 +312,7 @@ def store_biometrics(record):
             time_in_cardio_min      = EXCLUDED.time_in_cardio_min,
             time_in_peak_min        = EXCLUDED.time_in_peak_min;
     """
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn:
             with conn.cursor() as cur:

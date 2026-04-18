@@ -7,10 +7,10 @@ parses all 84 nutrients, and writes them to the PostgreSQL nutrition table.
 import csv
 import io
 import os
-import psycopg2
 import requests
 
-DATABASE_URL        = os.environ["DATABASE_URL"]
+from db import get_conn
+
 CRONOMETER_EMAIL    = os.environ.get("CRONOMETER_EMAIL")
 CRONOMETER_PASSWORD = os.environ.get("CRONOMETER_PASSWORD")
 
@@ -189,7 +189,7 @@ def store_nutrition(record):
         ON CONFLICT (date) DO UPDATE SET {update_list};
     """
 
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn:
             with conn.cursor() as cur:

@@ -1,48 +1,14 @@
 """Cortex Statistical Analysis Engine — v2"""
 
-import os
 import numpy as np
 import pandas as pd
-import psycopg2
 from scipy import stats
 import statsmodels.api as sm
 from statsmodels.tsa.seasonal import seasonal_decompose
 from prophet import Prophet
 
-DATABASE_URL = os.environ["DATABASE_URL"]
-
-BIOMETRIC_COLS = [
-    "sleep_duration_min", "sleep_efficiency_pct", "deep_sleep_min",
-    "rem_sleep_min", "light_sleep_min", "awake_min", "time_in_bed_min",
-    "hrv_ms", "hrv_deep_rmssd", "rhr_bpm",
-    "spo2_avg_pct", "spo2_min_pct", "spo2_max_pct", "respiratory_rate",
-    "steps", "active_zone_min", "very_active_min", "fairly_active_min",
-    "lightly_active_min", "sedentary_min", "calories_burned",
-    "distance_km", "vo2_max",
-    "time_in_fat_burn_min", "time_in_cardio_min", "time_in_peak_min",
-]
-
-# Excludes alcohol_units, caffeine_mg, caffeine_last_time
-NUTRITION_COLS = [
-    "calories_in", "protein_g", "carbs_g", "fat_g", "fibre_g",
-    "sugar_g", "sodium_mg", "water_ml",
-    "saturated_fat_g", "monounsaturated_fat_g", "polyunsaturated_fat_g",
-    "trans_fat_g", "cholesterol_mg",
-    "omega3_mg", "omega6_mg", "ala_mg", "epa_mg", "dha_mg",
-    "vitamin_a_mcg", "vitamin_d_iu", "vitamin_e_mg", "vitamin_k_mcg",
-    "vitamin_c_mg", "thiamine_mg", "riboflavin_mg", "niacin_mg",
-    "pantothenic_acid_mg", "vitamin_b6_mg", "biotin_mcg", "folate_mcg",
-    "vitamin_b12_mcg",
-    "calcium_mg", "iron_mg", "magnesium_mg", "phosphorus_mg",
-    "potassium_mg", "zinc_mg",
-    "selenium_mcg", "copper_mg", "manganese_mg", "chromium_mcg",
-    "iodine_mcg", "molybdenum_mcg",
-    "tryptophan_g", "threonine_g", "isoleucine_g", "leucine_g",
-    "lysine_g", "methionine_g", "phenylalanine_g", "valine_g",
-    "histidine_g", "alanine_g", "arginine_g", "aspartic_acid_g",
-    "cystine_g", "glutamic_acid_g", "glycine_g", "proline_g",
-    "serine_g", "tyrosine_g", "hydroxyproline_g",
-]
+from db import get_conn
+from columns import BIOMETRIC_COLS, NUTRITION_COLS  # noqa: F401 — re-exported
 
 COL_LABELS = {
     "sleep_duration_min":      "Sleep Duration (min)",
@@ -156,7 +122,7 @@ def load_data(days: int = None) -> pd.DataFrame:
         {where}
         ORDER BY b.date
     """
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute(sql)
@@ -181,7 +147,7 @@ def load_data(days: int = None) -> pd.DataFrame:
 
 def load_targets() -> dict:
     """Returns {variable: target_value} for all user-defined targets."""
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT variable, target_value FROM targets")
@@ -191,7 +157,7 @@ def load_targets() -> dict:
 
 
 def save_target(variable: str, value: float) -> None:
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn:
             with conn.cursor() as cur:
@@ -211,7 +177,7 @@ def save_target(variable: str, value: float) -> None:
 # ─────────────────────────────────────────────────────────────
 
 def load_experiments() -> pd.DataFrame:
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute("""
@@ -234,7 +200,7 @@ def load_experiments() -> pd.DataFrame:
 
 def create_experiment(name: str, variable_a: str, variable_b: str, lag_days: int,
                       method: str, start_date, duration_days: int) -> int:
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn:
             with conn.cursor() as cur:
@@ -252,7 +218,7 @@ def create_experiment(name: str, variable_a: str, variable_b: str, lag_days: int
 
 
 def store_interpretation(experiment_id: int, interpretation: str) -> None:
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn:
             with conn.cursor() as cur:
@@ -266,7 +232,7 @@ def store_interpretation(experiment_id: int, interpretation: str) -> None:
 
 
 def delete_experiment(experiment_id: int) -> None:
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn:
             with conn.cursor() as cur:
@@ -370,7 +336,7 @@ def load_findings() -> pd.DataFrame:
         FROM findings
         ORDER BY pinned DESC, r_squared DESC
     """
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute(sql)
@@ -382,7 +348,7 @@ def load_findings() -> pd.DataFrame:
 
 
 def delete_finding(finding_id: int) -> None:
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn:
             with conn.cursor() as cur:
@@ -402,7 +368,7 @@ def save_finding(variable_a: str, variable_b: str | None, r_squared: float,
             (%(variable_a)s, %(variable_b)s, %(r_squared)s, %(p_value)s,
              %(coefficient)s, %(lag_days)s, %(analysis_type)s, %(sample_size)s, %(pinned)s)
     """
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn:
             with conn.cursor() as cur:

@@ -25,16 +25,14 @@ optimiser that works well with XGBoost's black-box predictions and
 handles box constraints natively.
 """
 
-import os
 import json
-import psycopg2
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
 from pathlib import Path
 from scipy.optimize import differential_evolution
 
-DATABASE_URL = os.environ["DATABASE_URL"]
+from db import get_conn
 
 MAX_ACTIVITY_DELTA  = 0.40   # activity: never exceed 40 % above 30d avg
 MAX_NUTRITION_DELTA = 0.50   # nutrition: never exceed 50 % above 30d avg
@@ -132,7 +130,7 @@ CREATE TABLE IF NOT EXISTS ml_recommendations (
 
 def _ensure_table() -> None:
     """Create ml_recommendations if it does not already exist."""
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn:
             with conn.cursor() as cur:
@@ -164,7 +162,7 @@ def _write_recommendation(
         VALUES (%s, %s, %s, %s, %s, %s, %s)
         RETURNING id
     """
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn:
             with conn.cursor() as cur:

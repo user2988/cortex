@@ -8,9 +8,11 @@ this should be replaced with additive ALTER TABLE migrations.
 """
 
 import os
-import psycopg2
+import sys
 
-DATABASE_URL = os.environ["DATABASE_URL"]
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from db import get_conn  # noqa: E402
+
 SCHEMA_FILE  = os.path.join(os.path.dirname(__file__), "schema.sql")
 
 DROP_SQL = """
@@ -23,7 +25,7 @@ def run():
     with open(SCHEMA_FILE, "r") as f:
         schema_sql = f.read()
 
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn:
             with conn.cursor() as cur:

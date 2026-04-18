@@ -6,14 +6,13 @@ filters p < 0.05, ranks by R², writes top results to the findings table.
 Pinned findings are preserved and count toward the 10-row cap.
 """
 
-import os
 import sys
-import psycopg2
 import pandas as pd
 import numpy as np
 from scipy import stats
 
-DATABASE_URL = os.environ["DATABASE_URL"]
+from db import get_conn
+from columns import NUTRITION_COLS
 
 FINDINGS_CAP = 10
 MIN_SAMPLE    = 20   # minimum paired observations to include a result
@@ -29,28 +28,6 @@ PRIORITY_BIOMETRICS = [
     "spo2_avg_pct",
     "steps", "active_zone_min", "vo2_max",
     "respiratory_rate",
-]
-
-# Nutrition inputs — all tracked cols, excl. alcohol/caffeine/caffeine_last_time
-NUTRITION_COLS = [
-    "calories_in", "protein_g", "carbs_g", "fat_g", "fibre_g",
-    "sugar_g", "sodium_mg", "water_ml",
-    "saturated_fat_g", "monounsaturated_fat_g", "polyunsaturated_fat_g",
-    "trans_fat_g", "cholesterol_mg",
-    "omega3_mg", "omega6_mg", "ala_mg", "epa_mg", "dha_mg",
-    "vitamin_a_mcg", "vitamin_d_iu", "vitamin_e_mg", "vitamin_k_mcg",
-    "vitamin_c_mg", "thiamine_mg", "riboflavin_mg", "niacin_mg",
-    "pantothenic_acid_mg", "vitamin_b6_mg", "biotin_mcg", "folate_mcg",
-    "vitamin_b12_mcg",
-    "calcium_mg", "iron_mg", "magnesium_mg", "phosphorus_mg",
-    "potassium_mg", "zinc_mg",
-    "selenium_mcg", "copper_mg", "manganese_mg", "chromium_mcg",
-    "iodine_mcg", "molybdenum_mcg",
-    "tryptophan_g", "threonine_g", "isoleucine_g", "leucine_g",
-    "lysine_g", "methionine_g", "phenylalanine_g", "valine_g",
-    "histidine_g", "alanine_g", "arginine_g", "aspartic_acid_g",
-    "cystine_g", "glutamic_acid_g", "glycine_g", "proline_g",
-    "serine_g", "tyrosine_g", "hydroxyproline_g",
 ]
 
 # Biometric self-pairs worth scanning (predictor → outcome)
@@ -89,7 +66,7 @@ def load_data() -> pd.DataFrame:
         LEFT JOIN nutrition n ON b.date = n.date
         ORDER BY b.date
     """
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute(sql)
@@ -124,7 +101,7 @@ def pearson_lagged(x: pd.Series, y: pd.Series, lag: int):
 
 
 def count_pinned() -> int:
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM findings WHERE pinned = TRUE")
@@ -135,7 +112,7 @@ def count_pinned() -> int:
 
 def replace_auto_findings(results: list[dict]) -> None:
     """Delete all non-pinned findings and insert the new ranked results."""
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn:
             with conn.cursor() as cur:

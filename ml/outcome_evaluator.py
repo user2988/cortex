@@ -37,23 +37,18 @@ ON CONFLICT DO NOTHING, so `evaluate()` is safe to re-run on every
 pipeline invocation.
 """
 
-import os
 import json
-import psycopg2
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta, timezone
 
-DATABASE_URL = os.environ["DATABASE_URL"]
+from db import get_conn
+from columns import ACTIVITY_COLS, NUTRITION_COLS
 
 WINDOW_DAYS       = 7      # baseline and outcome window length
 MIN_OUTCOME_DAYS  = 4      # require at least this many scored days in the post-window
 MAINTAIN_TOL      = 0.05   # ±5 % counts as full adherence for "maintain" metrics
 EPS               = 1e-9
-
-# Metrics map: which source table each metric lives in (for actual lookup)
-# Only metrics that appear in rec JSON need to resolve.
-from ml.data_builder import ACTIVITY_COLS, NUTRITION_COLS
 
 _METRIC_SOURCE: dict[str, str] = {
     **{c: "biometrics" for c in ACTIVITY_COLS},
@@ -85,7 +80,7 @@ CREATE TABLE IF NOT EXISTS ml_recommendation_outcomes (
 
 
 def _ensure_table() -> None:
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn:
             with conn.cursor() as cur:
@@ -112,7 +107,7 @@ def _fetch_unevaluated_recs(cutoff: datetime) -> list[dict]:
           AND r.run_at <= %s
         ORDER BY r.run_at ASC
     """
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute(sql, (cutoff,))
@@ -161,7 +156,7 @@ def _fetch_window_actuals(
         WHERE b.date BETWEEN %s AND %s
         ORDER BY b.date
     """
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute(sql, (start_date, end_date))
@@ -359,7 +354,7 @@ def _insert_outcome(
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (rec_id) DO NOTHING
     """
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn:
             with conn.cursor() as cur:

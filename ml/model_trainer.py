@@ -19,10 +19,8 @@ the held-out test set. This mirrors real-world usage where the model is
 always predicting future days from past data.
 """
 
-import os
 import json
 import joblib
-import psycopg2
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
@@ -31,7 +29,7 @@ from pathlib import Path
 from xgboost import XGBRegressor
 from sklearn.metrics import mean_absolute_error, root_mean_squared_error
 
-DATABASE_URL = os.environ["DATABASE_URL"]
+from db import get_conn
 
 MODEL_DIR  = Path(__file__).parent / "models"
 MODEL_PATH = MODEL_DIR / "wellness_model.joblib"
@@ -69,7 +67,7 @@ CREATE TABLE IF NOT EXISTS ml_model_runs (
 
 def _ensure_table() -> None:
     """Create ml_model_runs if it does not already exist."""
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn:
             with conn.cursor() as cur:
@@ -105,7 +103,7 @@ def _write_run(
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
     """
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_conn()
     try:
         with conn:
             with conn.cursor() as cur:
