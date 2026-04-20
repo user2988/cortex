@@ -284,10 +284,12 @@ def build() -> pd.DataFrame:
         2. Apply 7-day rolling average to slow-acting micronutrients
         3. Lag all nutrition columns by 1 day
         4. Lag all activity columns by 1 day
-        5. Drop rows with >50 % missing feature values
-        6. Drop feature columns missing in >70 % of rows
-        7. Drop one of any feature pair with |r| > 0.95
-        8. Impute remaining nulls with column medians
+        5. Merge previous-day PM BP readings as lag-1 features
+           (today's AM BP is driven in part by how yesterday ended)
+        6. Drop rows with >50 % missing feature values
+        7. Drop feature columns missing in >70 % of rows
+        8. Drop one of any feature pair with |r| > 0.95
+        9. Impute remaining nulls with column medians
 
     Returns
     -------
@@ -311,6 +313,13 @@ def build() -> pd.DataFrame:
     # Lag nutrition and activity inputs
     df = _lag_cols(df, NUTRITION_COLS, lag=1)
     df = _lag_cols(df, ACTIVITY_COLS, lag=1)
+
+    # Merge PM BP readings as lag-1 features (yesterday's PM → today's AM).
+    # AM readings are the targets and are deliberately not included here.
+    bp = _load_bp_pm_for_features()
+    if not bp.empty:
+        df = df.join(bp, how="left")
+        df = _lag_cols(df, list(bp.columns), lag=1)
 
     # First row is always all-null for lagged columns — drop it
     df = df.iloc[1:]
@@ -347,6 +356,42 @@ def output_cols(df: pd.DataFrame) -> list[str]:
 # ─────────────────────────────────────────────────────────────
 
 BP_TARGET_COLS = ("AM_systolic", "AM_diastolic", "PM_systolic", "PM_diastolic")
+
+# PM readings used as lag-1 features in build(). Captures "how did
+# yesterday end" without training a separate PM model.
+_BP_PM_FEATURE_COLS = ("PM_systolic", "PM_diastolic")
+
+
+def _load_bp_pm_for_features() -> pd.DataFrame:
+    """
+    Return a date-indexed DataFrame of daily PM averages for feature use.
+
+    Unlike load_bp_targets() this only pulls PM readings — AM readings
+    are the training targets and must never appear in the feature frame.
+    """
+    sql = """
+        SELECT date,
+               AVG(systolic)::float  AS pm_systolic,
+               AVG(diastolic)::float AS pm_diastolic
+        FROM bp_readings
+        WHERE period = 'PM'
+        GROUP BY date
+        ORDER BY date
+    """
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        return pd.DataFrame(columns=list(_BP_PM_FEATURE_COLS))
+
+    bp = pd.DataFrame(rows, columns=["date", "PM_systolic", "PM_diastolic"])
+    bp["date"] = pd.to_datetime(bp["date"])
+    return bp.set_index("date")[list(_BP_PM_FEATURE_COLS)]
 
 
 def load_bp_targets() -> pd.DataFrame:
@@ -398,6 +443,43 @@ def load_bp_targets() -> pd.DataFrame:
         if col not in wide.columns:
             wide[col] = np.nan
     return wide[list(BP_TARGET_COLS)].sort_index()
+
+
+def am_to_pm_offset(bp: pd.DataFrame, window: int = 30) -> dict[str, float]:
+    """
+    Return the user's trailing personal AM→PM offset for systolic and diastolic.
+
+    PM is typically higher than AM due to the afternoon surge, but the exact
+    gap is personal. Taking a rolling 30-day mean of (PM − AM) gives a stable
+    personal delta that can be added to a predicted AM value to produce a
+    soft PM estimate, without training a second model.
+
+    Parameters
+    ----------
+    bp     : DataFrame from load_bp_targets() (columns AM_*, PM_*).
+    window : trailing days to average over. Falls back to full history if
+             fewer days are available.
+
+    Returns
+    -------
+    {"systolic": float, "diastolic": float}. Zero for either measure if
+    there are no paired AM/PM readings in the window.
+    """
+    if bp.empty:
+        return {"systolic": 0.0, "diastolic": 0.0}
+
+    tail = bp.tail(window)
+
+    def _mean_offset(am_col: str, pm_col: str) -> float:
+        delta = (tail[pm_col] - tail[am_col]).dropna()
+        if delta.empty:
+            delta = (bp[pm_col] - bp[am_col]).dropna()
+        return float(delta.mean()) if not delta.empty else 0.0
+
+    return {
+        "systolic":  _mean_offset("AM_systolic",  "PM_systolic"),
+        "diastolic": _mean_offset("AM_diastolic", "PM_diastolic"),
+    }
 
 
 if __name__ == "__main__":

@@ -137,9 +137,91 @@ def get_experiments():
 def get_targets():
     return analysis.load_targets()
 
+@st.cache_data(ttl=300)
+def get_bp_data():
+    """Load daily AM/PM BP averages for the dashboard."""
+    from ml import data_builder
+    try:
+        return data_builder.load_bp_targets()
+    except Exception:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=300)
+def get_bp_model_summary():
+    """
+    Return the latest BP model summaries plus a most-recent prediction
+    for each AM target. Runs inference fresh so predictions reflect the
+    newest row in the feature frame.
+    """
+    import psycopg2, json, joblib
+    from ml import data_builder
+
+    DATABASE_URL = os.environ.get("DATABASE_URL")
+    if not DATABASE_URL:
+        return {}
+
+    summary: dict[str, dict] = {}
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT DISTINCT ON (target_name)
+                           target_name, run_at, confidence_tier, n_rows,
+                           test_r2, test_mae, top_features, model_path
+                    FROM ml_model_runs
+                    WHERE target_name IN ('am_systolic', 'am_diastolic')
+                    ORDER BY target_name, run_at DESC
+                """)
+                for row in cur.fetchall():
+                    top = row[6] if isinstance(row[6], list) else (json.loads(row[6]) if row[6] else [])
+                    summary[row[0]] = {
+                        "run_at":      row[1],
+                        "tier":        row[2],
+                        "n_rows":      row[3],
+                        "test_r2":     float(row[4]) if row[4] is not None else None,
+                        "test_mae":    float(row[5]) if row[5] is not None else None,
+                        "top_features": top,
+                        "model_path":  row[7],
+                    }
+        finally:
+            conn.close()
+    except Exception:
+        return {}
+
+    if not summary:
+        return {}
+
+    # Run fresh inference on the latest feature row so the dashboard shows
+    # today's prediction, not the one from training day.
+    try:
+        df = data_builder.build()
+    except Exception:
+        df = pd.DataFrame()
+
+    if df.empty:
+        return summary
+
+    latest = df.iloc[-1]
+    for target, info in summary.items():
+        path = info.get("model_path")
+        if not path or not os.path.exists(path):
+            continue
+        try:
+            model = joblib.load(path)
+            feat_names = list(model.feature_names_in_) if hasattr(model, "feature_names_in_") else list(df.columns)
+            x = latest.reindex(feat_names).fillna(df[feat_names].median()).values.reshape(1, -1)
+            info["predicted"] = float(model.predict(x)[0])
+            info["predicted_for_date"] = pd.Timestamp(latest.name).to_pydatetime().date()
+        except Exception:
+            info["predicted"] = None
+
+    return summary
+
 def bust_cache():
     get_data.clear(); get_findings.clear()
     get_experiments.clear(); get_targets.clear()
+    get_bp_data.clear(); get_bp_model_summary.clear()
 
 # ─────────────────────────────────────────────────────────────
 # HELPERS
@@ -208,7 +290,7 @@ if "exp_detail_id" not in st.session_state:
 if "saved_view_id" not in st.session_state:
     st.session_state.saved_view_id = None
 
-page = st.sidebar.radio("", ["Insights", "Experiments", "Explorer"],
+page = st.sidebar.radio("", ["Insights", "Blood Pressure", "Experiments", "Explorer"],
                          key="page", label_visibility="collapsed")
 
 if page != "Experiments":
@@ -910,3 +992,142 @@ if page == "Explorer":
             except Exception as e:
                 st.error(f"Save failed: {e}")
 
+# ─────────────────────────────────────────────────────────────
+# BLOOD PRESSURE PAGE
+# ─────────────────────────────────────────────────────────────
+
+if page == "Blood Pressure":
+    from ml import data_builder
+
+    st.title("Blood Pressure")
+
+    bp = get_bp_data()
+
+    if bp is None or bp.empty:
+        st.caption("No blood pressure readings yet.")
+        st.markdown(
+            "Log 2 AM readings (~8am) and 2 PM readings (~6pm) per day in "
+            "`bp_readings`. Once enough history accumulates, the weekly pipeline "
+            "trains `am_systolic` and `am_diastolic` models against the previous "
+            "day's nutrition, activity, sleep and recovery inputs."
+        )
+        st.stop()
+
+    bp = bp.sort_index()
+    offset = data_builder.am_to_pm_offset(bp, window=30)
+    summary = get_bp_model_summary()
+
+    # ── Latest readings + offset ─────────────────────────────
+    latest_am = bp[["AM_systolic", "AM_diastolic"]].dropna(how="all").tail(1)
+    latest_pm = bp[["PM_systolic", "PM_diastolic"]].dropna(how="all").tail(1)
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if not latest_am.empty:
+            sys_v = latest_am["AM_systolic"].iloc[0]
+            dia_v = latest_am["AM_diastolic"].iloc[0]
+            date_v = pd.Timestamp(latest_am.index[0]).strftime("%-d %b")
+            st.metric("Latest AM",
+                      f"{sys_v:.0f} / {dia_v:.0f}",
+                      delta=f"avg of 2 · {date_v}", delta_color="off")
+        else:
+            st.metric("Latest AM", "—")
+    with col2:
+        if not latest_pm.empty:
+            sys_v = latest_pm["PM_systolic"].iloc[0]
+            dia_v = latest_pm["PM_diastolic"].iloc[0]
+            date_v = pd.Timestamp(latest_pm.index[0]).strftime("%-d %b")
+            st.metric("Latest PM",
+                      f"{sys_v:.0f} / {dia_v:.0f}",
+                      delta=f"avg of 2 · {date_v}", delta_color="off")
+        else:
+            st.metric("Latest PM", "—")
+    with col3:
+        st.metric("Personal AM→PM offset",
+                  f"+{offset['systolic']:.1f} / +{offset['diastolic']:.1f}",
+                  delta="30d mean (PM − AM)", delta_color="off")
+
+    # ── Model predictions ────────────────────────────────────
+    sys_info = summary.get("am_systolic", {})
+    dia_info = summary.get("am_diastolic", {})
+    pred_sys = sys_info.get("predicted")
+    pred_dia = dia_info.get("predicted")
+
+    st.divider()
+    st.markdown("#### Next-morning prediction")
+
+    if pred_sys is None or pred_dia is None:
+        st.caption("No trained model yet — predictions appear after the first successful pipeline run.")
+    else:
+        pred_date = sys_info.get("predicted_for_date")
+        pred_caption = f"Predicted for {pred_date:%-d %b}" if pred_date else "Latest prediction"
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("Predicted AM",
+                      f"{pred_sys:.0f} / {pred_dia:.0f}",
+                      delta=pred_caption, delta_color="off")
+        with c2:
+            expected_pm_sys = pred_sys + offset["systolic"]
+            expected_pm_dia = pred_dia + offset["diastolic"]
+            st.metric("Expected PM",
+                      f"{expected_pm_sys:.0f} / {expected_pm_dia:.0f}",
+                      delta="predicted AM + personal offset", delta_color="off")
+        with c3:
+            sys_mae = sys_info.get("test_mae")
+            dia_mae = dia_info.get("test_mae")
+            tier = sys_info.get("tier", "—").capitalize()
+            mae_str = (f"±{sys_mae:.1f}/{dia_mae:.1f} mmHg"
+                       if sys_mae is not None and dia_mae is not None else "—")
+            st.metric("Model confidence", tier, delta=mae_str, delta_color="off")
+
+    # ── 30-day trend ─────────────────────────────────────────
+    st.divider()
+    st.markdown("#### Last 30 days")
+
+    recent = bp.tail(30)
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08,
+                        subplot_titles=["Systolic", "Diastolic"])
+    fig.add_trace(go.Scatter(x=recent.index, y=recent["AM_systolic"],
+                             name="AM systolic", mode="lines+markers",
+                             line=dict(color=BLUE, width=2)), row=1, col=1)
+    fig.add_trace(go.Scatter(x=recent.index, y=recent["PM_systolic"],
+                             name="PM systolic", mode="lines+markers",
+                             line=dict(color=ORANGE, width=2, dash="dot")), row=1, col=1)
+    fig.add_trace(go.Scatter(x=recent.index, y=recent["AM_diastolic"],
+                             name="AM diastolic", mode="lines+markers",
+                             line=dict(color=BLUE, width=2), showlegend=False), row=2, col=1)
+    fig.add_trace(go.Scatter(x=recent.index, y=recent["PM_diastolic"],
+                             name="PM diastolic", mode="lines+markers",
+                             line=dict(color=ORANGE, width=2, dash="dot"), showlegend=False), row=2, col=1)
+    fig.update_layout(height=520, margin=dict(t=40, b=20),
+                      legend=dict(orientation="h", y=1.12),
+                      yaxis=dict(title="mmHg"), yaxis2=dict(title="mmHg"))
+    st.plotly_chart(fig, use_container_width=True)
+
+    # ── Top drivers ──────────────────────────────────────────
+    top_sys = sys_info.get("top_features") or []
+    if top_sys:
+        st.divider()
+        st.markdown("#### Top drivers (AM systolic)")
+        st.caption("Features the model weighted most heavily — ranked by importance.")
+
+        feat_names = [analysis.COL_LABELS.get(
+            f["feature"].replace("_lag1", ""), f["feature"].replace("_lag1", "")
+        ) for f in top_sys[:10]]
+        feat_imps = [f["importance"] for f in top_sys[:10]]
+        max_imp = max(feat_imps) if feat_imps else 1
+
+        fig = go.Figure(go.Bar(
+            x=feat_imps,
+            y=feat_names,
+            orientation="h",
+            marker_color=[BLUE if i > max_imp * 0.5 else GRAY for i in feat_imps],
+        ))
+        fig.update_layout(
+            height=40 * len(feat_names) + 60,
+            margin=dict(l=0, r=20, t=20, b=0),
+            xaxis_title="Importance",
+            yaxis=dict(autorange="reversed"),
+        )
+        st.plotly_chart(fig, use_container_width=True)
