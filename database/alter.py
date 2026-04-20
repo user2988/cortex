@@ -60,6 +60,20 @@ MIGRATIONS = [
     # ml_model_runs kept, but its wellness-era rows have no target_name — add
     # the column so future BP runs can label themselves.
     "ALTER TABLE ml_model_runs ADD COLUMN IF NOT EXISTS target_name TEXT",
+    # Blood pressure readings — four per day. AM averages are the primary ML
+    # targets; PM readings are secondary validation.
+    """CREATE TABLE IF NOT EXISTS bp_readings (
+        date            DATE        NOT NULL,
+        period          TEXT        NOT NULL CHECK (period IN ('AM', 'PM')),
+        reading_index   SMALLINT    NOT NULL CHECK (reading_index IN (1, 2)),
+        systolic        SMALLINT    NOT NULL CHECK (systolic  BETWEEN 60 AND 260),
+        diastolic       SMALLINT    NOT NULL CHECK (diastolic BETWEEN 30 AND 160),
+        pulse           SMALLINT,
+        recorded_at     TIMESTAMPTZ,
+        created_at      TIMESTAMPTZ DEFAULT NOW(),
+        PRIMARY KEY (date, period, reading_index)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_bp_readings_date ON bp_readings(date DESC)",
 ]
 
 def run():

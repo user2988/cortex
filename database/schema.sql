@@ -160,6 +160,22 @@ CREATE TABLE IF NOT EXISTS weight (
 );
 
 
+-- Blood pressure readings — four per day, two at AM (~8am) and two at PM (~6pm).
+-- AM_systolic / AM_diastolic (averages of the two AM readings) are the primary
+-- ML targets; PM readings provide secondary validation.
+CREATE TABLE IF NOT EXISTS bp_readings (
+    date            DATE        NOT NULL,
+    period          TEXT        NOT NULL CHECK (period IN ('AM', 'PM')),
+    reading_index   SMALLINT    NOT NULL CHECK (reading_index IN (1, 2)),
+    systolic        SMALLINT    NOT NULL CHECK (systolic  BETWEEN 60 AND 260),
+    diastolic       SMALLINT    NOT NULL CHECK (diastolic BETWEEN 30 AND 160),
+    pulse           SMALLINT,
+    recorded_at     TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (date, period, reading_index)
+);
+
+
 -- Findings — correlation/analysis results, updated weekly by the findings job
 -- Also populated on demand via the Streamlit Explorer (pinned=true for manual saves)
 CREATE TABLE IF NOT EXISTS findings (
@@ -203,8 +219,9 @@ CREATE TABLE IF NOT EXISTS targets (
 -- Indexes for common query patterns
 -- ─────────────────────────────────────────────────────────────
 
-CREATE INDEX IF NOT EXISTS idx_biometrics_date  ON biometrics(date DESC);
-CREATE INDEX IF NOT EXISTS idx_nutrition_date   ON nutrition(date DESC);
-CREATE INDEX IF NOT EXISTS idx_weight_date      ON weight(date DESC);
-CREATE INDEX IF NOT EXISTS idx_findings_r2      ON findings(r_squared DESC);
-CREATE INDEX IF NOT EXISTS idx_experiments_date ON experiments(start_date DESC);
+CREATE INDEX IF NOT EXISTS idx_biometrics_date    ON biometrics(date DESC);
+CREATE INDEX IF NOT EXISTS idx_nutrition_date     ON nutrition(date DESC);
+CREATE INDEX IF NOT EXISTS idx_weight_date        ON weight(date DESC);
+CREATE INDEX IF NOT EXISTS idx_bp_readings_date   ON bp_readings(date DESC);
+CREATE INDEX IF NOT EXISTS idx_findings_r2        ON findings(r_squared DESC);
+CREATE INDEX IF NOT EXISTS idx_experiments_date   ON experiments(start_date DESC);

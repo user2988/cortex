@@ -342,6 +342,64 @@ def output_cols(df: pd.DataFrame) -> list[str]:
     return [c for c in OUTPUT_COLS if c in df.columns]
 
 
+# ─────────────────────────────────────────────────────────────
+# BP TARGETS
+# ─────────────────────────────────────────────────────────────
+
+BP_TARGET_COLS = ("AM_systolic", "AM_diastolic", "PM_systolic", "PM_diastolic")
+
+
+def load_bp_targets() -> pd.DataFrame:
+    """
+    Load bp_readings and return per-day averages for each period.
+
+    Each calendar day should have up to four rows in bp_readings — two AM
+    and two PM. This aggregates them into a single row per date with
+    columns AM_systolic, AM_diastolic, PM_systolic, PM_diastolic (each the
+    mean of the available readings for that period).
+
+    Rows are kept even if only one of the two readings is present; a NaN
+    result in a given period/measure means no readings were logged.
+
+    Returns
+    -------
+    pd.DataFrame indexed by date (tz-naive) with float columns
+        AM_systolic, AM_diastolic, PM_systolic, PM_diastolic.
+        Empty DataFrame if the bp_readings table has no rows.
+    """
+    sql = """
+        SELECT date, period,
+               AVG(systolic)::float  AS systolic_avg,
+               AVG(diastolic)::float AS diastolic_avg
+        FROM bp_readings
+        GROUP BY date, period
+        ORDER BY date
+    """
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        return pd.DataFrame(columns=list(BP_TARGET_COLS))
+
+    long = pd.DataFrame(rows, columns=["date", "period", "systolic_avg", "diastolic_avg"])
+    long["date"] = pd.to_datetime(long["date"])
+
+    wide = long.pivot(index="date", columns="period", values=["systolic_avg", "diastolic_avg"])
+    wide.columns = [f"{period}_{measure.split('_')[0]}"
+                    for measure, period in wide.columns]
+
+    # Ensure canonical column order + fill in missing periods with NaN cols
+    for col in BP_TARGET_COLS:
+        if col not in wide.columns:
+            wide[col] = np.nan
+    return wide[list(BP_TARGET_COLS)].sort_index()
+
+
 if __name__ == "__main__":
     df = build()
     print(df.shape)

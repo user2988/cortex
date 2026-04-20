@@ -3,15 +3,17 @@ Cortex ML — Pipeline Orchestrator
 
 Runs the ML pipeline end-to-end.
 
-Current stages
---------------
-1. data_builder — load and transform data
+Stages
+------
+1. data_builder  — load and transform feature data
+2. load_bp_targets — aggregate bp_readings into daily AM/PM averages
+3. model_trainer — train one XGBoost regressor per AM target
+                   (AM_systolic, AM_diastolic)
 
-The wellness-score stack (wellness_score, outcome_tracker, stack_optimiser)
-has been removed. The new target is blood pressure (AM_systolic and
-AM_diastolic, each the average of the two morning readings). BP targets
-will be wired into model_trainer in a follow-up change once the
-bp_readings table is live.
+PM readings are aggregated and stored alongside AM readings but not
+trained on: per the product spec, PM BP is secondary validation and
+needs a different feature-alignment rule (same-day nutrition + caffeine
+timing) that will be added in a follow-up.
 
 Failure isolation
 -----------------
@@ -36,9 +38,21 @@ from pathlib import Path
 # Ensure the repo root is on the path when called directly
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from ml import data_builder
+from ml import data_builder, model_trainer
 
 DATABASE_URL = os.environ["DATABASE_URL"]
+
+# Targets trained each run, in order. Names double as model filenames
+# (models/<name>_model.joblib) and the ml_model_runs.target_name value.
+AM_TARGETS = ("am_systolic", "am_diastolic")
+
+# Mapping from the short target name used in filenames/DB rows to the
+# column name returned by data_builder.load_bp_targets().
+TARGET_COLUMN = {
+    "am_systolic":  "AM_systolic",
+    "am_diastolic": "AM_diastolic",
+}
+
 
 # ─────────────────────────────────────────────────────────────
 # PIPELINE LOG TABLE
@@ -128,25 +142,65 @@ def run() -> bool:
     try:
         _ensure_log_table()
 
-        # ── Stage 1: Data ────────────────────────────────────
+        # ── Stage 1: Features ────────────────────────────────
         stage = "data_builder"
         print(f"\n[pipeline] Stage 1 — {stage}")
         df = data_builder.build()
 
         if df.empty:
-            print("[pipeline] No data available — skipping pipeline.")
-            _log(run_at, "skipped", elapsed(), stage, "empty dataframe")
+            print("[pipeline] No feature data available — skipping pipeline.")
+            _log(run_at, "skipped", elapsed(), stage, "empty feature dataframe")
             return False
 
-        # BP model training stage lands here once bp_readings is live.
-        # Target variables: AM_systolic, AM_diastolic (each the average
-        # of the two morning readings).
+        # ── Stage 2: BP targets ──────────────────────────────
+        stage = "load_bp_targets"
+        print(f"\n[pipeline] Stage 2 — {stage}")
+        bp = data_builder.load_bp_targets()
+
+        if bp.empty:
+            print("[pipeline] bp_readings is empty — no BP logged yet.")
+            print("           Start logging 2 AM + 2 PM readings per day to train.")
+            _log(run_at, "skipped", elapsed(), stage, "no bp_readings rows")
+            return False
+
+        print(f"  Days with BP readings : {len(bp)}")
+        for col in data_builder.BP_TARGET_COLS:
+            n = int(bp[col].notna().sum())
+            print(f"  {col:<13} : {n} day{'s' if n != 1 else ''}")
+
+        # ── Stage 3: Train one model per AM target ───────────
+        stage = "model_trainer"
+        print(f"\n[pipeline] Stage 3 — {stage}")
+
+        results: dict[str, dict | None] = {}
+        for target_name in AM_TARGETS:
+            col = TARGET_COLUMN[target_name]
+            print(f"\n  ── Target: {target_name} ({col}) ──")
+            # Reindex target to the feature frame so alignment is explicit;
+            # days without a BP reading become NaN and are dropped inside train().
+            target = bp[col].reindex(df.index)
+            result = model_trainer.train(df, target, model_name=target_name)
+            results[target_name] = result
+            if result is None:
+                print(f"  {target_name}: insufficient data — skipped.")
+
+        trained = [name for name, r in results.items() if r is not None]
+
+        if not trained:
+            print("\n[pipeline] No models trained — insufficient paired data.")
+            _log(run_at, "skipped", elapsed(), stage, "insufficient paired data")
+            return False
 
         # ── Done ─────────────────────────────────────────────
         dur = elapsed()
         print(f"\n{'─' * 60}")
         print(f"[pipeline] Completed successfully in {dur:.1f}s")
-        print(f"  Rows prepared : {len(df)}")
+        for name in trained:
+            r = results[name]
+            print(f"  {name:<13} tier={r['tier']:<10} "
+                  f"rows={r['n_rows']:<4} "
+                  f"test_mae={r['test_mae']:.2f} mmHg "
+                  f"test_r2={r['test_r2']:.3f}")
 
         _log(run_at, "success", dur, stage, None)
         return True
