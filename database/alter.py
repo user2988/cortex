@@ -52,6 +52,14 @@ MIGRATIONS = [
         target_value  NUMERIC(10, 2) NOT NULL,
         updated_at    TIMESTAMPTZ   DEFAULT NOW()
     )""",
+    # Scrap the wellness-score stack — replaced by BP prediction (AM_systolic,
+    # AM_diastolic). ml_model_runs and ml_pipeline_log are retained because
+    # they are generic training/run metadata and will be reused for BP models.
+    "DROP TABLE IF EXISTS ml_recommendation_outcomes",
+    "DROP TABLE IF EXISTS ml_recommendations",
+    # ml_model_runs kept, but its wellness-era rows have no target_name — add
+    # the column so future BP runs can label themselves.
+    "ALTER TABLE ml_model_runs ADD COLUMN IF NOT EXISTS target_name TEXT",
 ]
 
 def run():

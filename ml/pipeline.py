@@ -1,13 +1,17 @@
 """
-Cortex ML — Component 5: Pipeline Orchestrator
+Cortex ML — Pipeline Orchestrator
 
-Runs the full ML pipeline end-to-end in the correct order:
-    1. data_builder  — load and transform data
-    2. wellness_score — compute daily target scores
-    3. model_trainer  — train XGBoost model
-    4. stack_optimiser — find optimal activity targets
+Runs the ML pipeline end-to-end.
 
-This is the entry point called by GitHub Actions each week.
+Current stages
+--------------
+1. data_builder — load and transform data
+
+The wellness-score stack (wellness_score, outcome_tracker, stack_optimiser)
+has been removed. The new target is blood pressure (AM_systolic and
+AM_diastolic, each the average of the two morning readings). BP targets
+will be wired into model_trainer in a follow-up change once the
+bp_readings table is live.
 
 Failure isolation
 -----------------
@@ -32,7 +36,7 @@ from pathlib import Path
 # Ensure the repo root is on the path when called directly
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from ml import data_builder, wellness_score, model_trainer, stack_optimiser, outcome_tracker
+from ml import data_builder
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
@@ -105,17 +109,9 @@ def _log(
 # PIPELINE
 # ─────────────────────────────────────────────────────────────
 
-def run() -> bool:  # noqa: C901
+def run() -> bool:
     """
-    Execute the full ML pipeline and return True on success.
-
-    Stages
-    ------
-    1. data_builder    — load and transform data
-    2. wellness_score  — compute daily target scores
-    3. outcome_tracker — evaluate last week's recommendations
-    4. model_trainer   — train XGBoost model
-    5. stack_optimiser — find optimal targets
+    Execute the ML pipeline and return True on success.
 
     Returns False on graceful skip or failure. Never raises.
     """
@@ -142,46 +138,15 @@ def run() -> bool:  # noqa: C901
             _log(run_at, "skipped", elapsed(), stage, "empty dataframe")
             return False
 
-        # ── Stage 2: Wellness scores ─────────────────────────
-        stage = "wellness_score"
-        print(f"\n[pipeline] Stage 2 — {stage}")
-        scores = wellness_score.compute(df)
-        valid  = scores.dropna()
-        print(f"  Scored rows : {len(valid)} / {len(scores)}")
-        print(f"  Score range : {valid.min():.1f} – {valid.max():.1f}")
-        print(f"  Score mean  : {valid.mean():.1f}")
-
-        # ── Stage 3: Outcome evaluation ──────────────────────
-        stage = "outcome_tracker"
-        print(f"\n[pipeline] Stage 3 — {stage}")
-        outcome_tracker.evaluate(scores)
-
-        # ── Stage 4: Model training ──────────────────────────
-        stage = "model_trainer"
-        print(f"\n[pipeline] Stage 4 — {stage}")
-        train_result = model_trainer.train(df, scores)
-
-        if train_result is None:
-            print("[pipeline] Insufficient data — skipping optimisation.")
-            _log(run_at, "skipped", elapsed(), stage, "insufficient data for training")
-            return False
-
-        # ── Stage 5: Stack optimisation ──────────────────────
-        stage = "stack_optimiser"
-        print(f"\n[pipeline] Stage 5 — {stage}")
-        rec = stack_optimiser.optimise(df, scores, train_result)
-
-        if rec is None:
-            print("[pipeline] Optimisation produced no recommendations.")
+        # BP model training stage lands here once bp_readings is live.
+        # Target variables: AM_systolic, AM_diastolic (each the average
+        # of the two morning readings).
 
         # ── Done ─────────────────────────────────────────────
         dur = elapsed()
         print(f"\n{'─' * 60}")
         print(f"[pipeline] Completed successfully in {dur:.1f}s")
-        if rec:
-            print(f"  Wellness : {rec['current_wellness']:.1f} → {rec['predicted_wellness']:.1f} (predicted)")
-            print(f"  Tier     : {rec['tier']}")
-            print(f"  Rec id   : {rec['rec_id']}")
+        print(f"  Rows prepared : {len(df)}")
 
         _log(run_at, "success", dur, stage, None)
         return True

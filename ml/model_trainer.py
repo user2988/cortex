@@ -1,9 +1,13 @@
 """
-Cortex ML — Component 3: Model Trainer
+Cortex ML — Model Trainer
 
-Trains an XGBoost regression model to predict the daily wellness score
-from lagged nutrition and activity features. Writes model metadata and
-feature importances to the database. Saves the trained model to disk.
+Trains an XGBoost regression model against a supplied daily target from
+lagged nutrition / activity / recovery features. Writes model metadata
+and feature importances to the database. Saves the trained model to disk.
+
+The primary targets for this product are AM_systolic and AM_diastolic
+(each the average of the two morning BP readings). One model is trained
+per target — call train() once per target with a distinct model_name.
 
 Confidence tiers (based on number of complete training rows)
 ------------------------------------------------------------
@@ -33,8 +37,7 @@ from sklearn.metrics import mean_absolute_error, root_mean_squared_error
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
-MODEL_DIR  = Path(__file__).parent / "models"
-MODEL_PATH = MODEL_DIR / "wellness_model.joblib"
+MODEL_DIR = Path(__file__).parent / "models"
 
 TEST_FRACTION  = 0.20   # fraction of rows held out as test set
 TOP_N_FEATURES = 20     # number of top features written to DB
@@ -53,6 +56,7 @@ CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS ml_model_runs (
     id              SERIAL PRIMARY KEY,
     run_at          TIMESTAMPTZ NOT NULL,
+    target_name     TEXT,
     confidence_tier TEXT        NOT NULL,
     n_rows          INTEGER     NOT NULL,
     n_features      INTEGER     NOT NULL,
@@ -80,6 +84,7 @@ def _ensure_table() -> None:
 
 def _write_run(
     run_at: datetime,
+    target_name: str,
     tier: str,
     n_rows: int,
     n_features: int,
@@ -99,10 +104,10 @@ def _write_run(
     """
     sql = """
         INSERT INTO ml_model_runs
-            (run_at, confidence_tier, n_rows, n_features,
+            (run_at, target_name, confidence_tier, n_rows, n_features,
              train_r2, test_r2, test_mae, test_rmse,
              top_features, model_path)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
     """
     conn = psycopg2.connect(DATABASE_URL)
@@ -111,6 +116,7 @@ def _write_run(
             with conn.cursor() as cur:
                 cur.execute(sql, (
                     run_at,
+                    target_name,
                     tier,
                     int(n_rows),
                     int(n_features),
@@ -186,14 +192,16 @@ def _build_model() -> XGBRegressor:
     )
 
 
-def train(df: pd.DataFrame, scores: pd.Series) -> dict | None:
+def train(df: pd.DataFrame, target: pd.Series, model_name: str) -> dict | None:
     """
-    Train the wellness model and persist artefacts to disk and database.
+    Train a model against `target` and persist artefacts to disk and database.
 
     Parameters
     ----------
-    df     : feature DataFrame from data_builder.build()
-    scores : wellness scores from wellness_score.compute()
+    df         : feature DataFrame from data_builder.build()
+    target     : daily target series indexed by date (e.g. AM_systolic)
+    model_name : short identifier used for the saved model filename and
+                 the ml_model_runs.target_name column (e.g. "am_systolic")
 
     Returns
     -------
@@ -203,13 +211,14 @@ def train(df: pd.DataFrame, scores: pd.Series) -> dict | None:
     """
     _ensure_table()
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    model_path = MODEL_DIR / f"{model_name}_model.joblib"
 
-    # Align features with scores and drop rows where score is NaN
+    # Align features with target and drop rows where target is NaN
     from ml.data_builder import feature_cols
     feat_cols = feature_cols(df)
 
     combined = df[feat_cols].copy()
-    combined["__target__"] = scores
+    combined["__target__"] = target
     combined = combined.dropna(subset=["__target__"])
 
     X = combined[feat_cols]
@@ -270,13 +279,14 @@ def train(df: pd.DataFrame, scores: pd.Series) -> dict | None:
         print(f"    {entry['feature']:<35} {entry['importance']:.4f}")
 
     # Persist model
-    joblib.dump(model, MODEL_PATH)
-    print(f"\n  Model saved to: {MODEL_PATH}")
+    joblib.dump(model, model_path)
+    print(f"\n  Model saved to: {model_path}")
 
     # Write metadata to DB
     run_at = datetime.now(timezone.utc)
     run_id = _write_run(
         run_at      = run_at,
+        target_name = model_name,
         tier        = tier,
         n_rows      = n_rows,
         n_features  = len(feat_cols),
@@ -285,7 +295,7 @@ def train(df: pd.DataFrame, scores: pd.Series) -> dict | None:
         test_mae    = test_mae,
         test_rmse   = test_rmse,
         top_features= top_features_list,
-        model_path  = str(MODEL_PATH),
+        model_path  = str(model_path),
     )
     print(f"  Run metadata written (id={run_id}).")
 
@@ -298,44 +308,21 @@ def train(df: pd.DataFrame, scores: pd.Series) -> dict | None:
         "test_mae":     test_mae,
         "test_rmse":    test_rmse,
         "top_features": top_features_list,
-        "model_path":   str(MODEL_PATH),
+        "model_path":   str(model_path),
         "run_id":       run_id,
         "model":        model,
         "feature_cols": feat_cols,
+        "target_name":  model_name,
     }
 
 
-def load_model() -> tuple[XGBRegressor, list[str]] | tuple[None, None]:
+def load_model(model_name: str) -> XGBRegressor | None:
     """
-    Load the most recently saved model from disk.
+    Load a previously saved model from disk by name.
 
-    Returns (model, feature_cols) or (None, None) if no model exists.
+    Returns the XGBRegressor, or None if no such model exists.
     """
-    if not MODEL_PATH.exists():
-        return None, None
-    model = joblib.load(MODEL_PATH)
-    return model, None   # feature_cols resolved fresh by caller
-
-
-if __name__ == "__main__":
-    import sys
-    sys.path.insert(0, str(Path(__file__).parent.parent))
-
-    from ml import data_builder, wellness_score
-
-    print("[model_trainer] Building data...")
-    df = data_builder.build()
-    if df.empty:
-        print("No data — exiting.")
-        sys.exit(0)
-
-    print("[model_trainer] Computing wellness scores...")
-    scores = wellness_score.compute(df)
-
-    print("[model_trainer] Training model...")
-    result = train(df, scores)
-
-    if result is None:
-        print("Training skipped.")
-    else:
-        print(f"\nDone. Run id={result['run_id']}  tier={result['tier']}")
+    model_path = MODEL_DIR / f"{model_name}_model.joblib"
+    if not model_path.exists():
+        return None
+    return joblib.load(model_path)

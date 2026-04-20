@@ -9,7 +9,8 @@ Conventions
 - Nutrition columns  : lagged 1 day  (yesterday's intake → today's biometrics)
 - Slow micronutrients: 7-day rolling average applied *before* the 1-day lag
 - Activity columns   : lagged 1 day  (yesterday's activity → today's recovery)
-- Output columns     : never lagged  (these are what the wellness score predicts)
+- Output columns     : never lagged  (these are the raw recovery/sleep metrics
+                        the model will eventually join against BP targets)
 - Rows missing >50 % of feature columns are dropped
 - Remaining nulls are imputed with each column's median
 """
@@ -25,8 +26,9 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 # COLUMN DEFINITIONS
 # ─────────────────────────────────────────────────────────────
 
-# Biometric outputs — the target variables for the wellness score.
-# These are NEVER lagged; they are what the model learns to predict.
+# Biometric outputs — raw sleep/recovery metrics captured overnight.
+# These are NEVER lagged. For AM BP prediction they are used as same-row
+# features (previous night's sleep → this morning's BP), not targets.
 OUTPUT_COLS = [
     "sleep_duration_min",
     "sleep_efficiency_pct",
