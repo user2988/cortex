@@ -117,6 +117,22 @@ TREND_METRICS = [
     ("Protein",         "protein_g",        "g",   "nut", True),
 ]
 
+# Features the user can act on today to improve tomorrow's AM reading.
+# (display_label, direction, display_unit)
+# display_unit "hrs" triggers a minutes→hours conversion on render.
+ACTIONABLE_LAG_FEATURES: dict[str, tuple[str, str, str]] = {
+    "sodium_mg_lag1":           ("Sodium",          "lower",  "mg"),
+    "potassium_mg_lag1":        ("Potassium",        "higher", "mg"),
+    "magnesium_mg_lag1":        ("Magnesium",        "higher", "mg"),
+    "water_ml_lag1":            ("Water",            "higher", "ml"),
+    "alcohol_units_lag1":       ("Alcohol",          "lower",  "units"),
+    "caffeine_mg_lag1":         ("Caffeine",         "lower",  "mg"),
+    "steps_lag1":               ("Steps",            "higher", ""),
+    "active_zone_min_lag1":     ("Active zone min",  "higher", "min"),
+    "sedentary_min_lag1":       ("Sedentary time",   "lower",  "min"),
+    "sleep_duration_min_lag1":  ("Sleep",            "higher", "hrs"),
+}
+
 # ─────────────────────────────────────────────────────────────
 # CACHE
 # ─────────────────────────────────────────────────────────────
@@ -139,7 +155,7 @@ def get_targets():
 
 @st.cache_data(ttl=300)
 def get_bp_data():
-    """Load daily AM/PM BP averages for the dashboard."""
+    """Load daily AM/PM BP averages for the trend chart."""
     from ml import data_builder
     try:
         return data_builder.load_bp_targets()
@@ -147,81 +163,180 @@ def get_bp_data():
         return pd.DataFrame()
 
 @st.cache_data(ttl=300)
-def get_bp_model_summary():
+def get_bp_insights():
     """
-    Return the latest BP model summaries plus a most-recent prediction
-    for each AM target. Runs inference fresh so predictions reflect the
-    newest row in the feature frame.
+    Compute everything the Blood Pressure page needs in one pass:
+    - baseline: latest AM reading vs 30-day rolling average
+    - why:      top SHAP contributors for the most recent reading
+    - goals:    top 3 actionable counterfactuals (what to do today)
+    - confidence: model tier + MAE
+    - top_features: overall feature importance for the drivers chart
     """
+    import xgboost as xgb
     import psycopg2, json, joblib
-    from ml import data_builder
+    from ml import data_builder as db_mod
+
+    result: dict = {"baseline": {}, "why": [], "goals": [],
+                    "confidence": {}, "top_features": []}
 
     DATABASE_URL = os.environ.get("DATABASE_URL")
     if not DATABASE_URL:
-        return {}
+        return result
 
-    summary: dict[str, dict] = {}
+    # ── Baseline (latest AM vs 30d rolling avg) ──────────────
+    try:
+        bp = db_mod.load_bp_targets()
+    except Exception:
+        return result
+
+    if not bp.empty:
+        bp = bp.sort_index()
+        am_sys = bp["AM_systolic"].dropna()
+        am_dia = bp["AM_diastolic"].dropna()
+        if len(am_sys) >= 1:
+            latest_sys   = float(am_sys.iloc[-1])
+            latest_dia   = float(am_dia.iloc[-1]) if not am_dia.empty else None
+            baseline_sys = float(am_sys.tail(30).mean())
+            baseline_dia = float(am_dia.tail(30).mean()) if not am_dia.empty else None
+            delta_sys    = latest_sys - baseline_sys
+            result["baseline"] = {
+                "latest_sys":   latest_sys,
+                "latest_dia":   latest_dia,
+                "baseline_sys": round(baseline_sys, 1),
+                "baseline_dia": round(baseline_dia, 1) if baseline_dia else None,
+                "delta_sys":    round(delta_sys, 1),
+                "pct_sys":      round(delta_sys / baseline_sys * 100, 1),
+                "reading_date": str(am_sys.index[-1].date()),
+            }
+
+    # ── Model metadata ───────────────────────────────────────
     try:
         conn = psycopg2.connect(DATABASE_URL)
         try:
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT DISTINCT ON (target_name)
-                           target_name, run_at, confidence_tier, n_rows,
-                           test_r2, test_mae, top_features, model_path
+                           target_name, confidence_tier, test_mae,
+                           top_features, model_path
                     FROM ml_model_runs
                     WHERE target_name IN ('am_systolic', 'am_diastolic')
                     ORDER BY target_name, run_at DESC
                 """)
+                model_meta = {}
                 for row in cur.fetchall():
-                    top = row[6] if isinstance(row[6], list) else (json.loads(row[6]) if row[6] else [])
-                    summary[row[0]] = {
-                        "run_at":      row[1],
-                        "tier":        row[2],
-                        "n_rows":      row[3],
-                        "test_r2":     float(row[4]) if row[4] is not None else None,
-                        "test_mae":    float(row[5]) if row[5] is not None else None,
+                    top = (row[3] if isinstance(row[3], list)
+                           else (json.loads(row[3]) if row[3] else []))
+                    model_meta[row[0]] = {
+                        "tier":         row[1],
+                        "test_mae":     float(row[2]) if row[2] else None,
                         "top_features": top,
-                        "model_path":  row[7],
+                        "model_path":   row[4],
                     }
         finally:
             conn.close()
     except Exception:
-        return {}
+        return result
 
-    if not summary:
-        return {}
+    if "am_systolic" not in model_meta:
+        return result
 
-    # Run fresh inference on the latest feature row so the dashboard shows
-    # today's prediction, not the one from training day.
+    meta_sys = model_meta["am_systolic"]
+    meta_dia = model_meta.get("am_diastolic", {})
+    result["confidence"] = {
+        "tier":    meta_sys.get("tier", "—"),
+        "mae_sys": meta_sys.get("test_mae"),
+        "mae_dia": meta_dia.get("test_mae"),
+    }
+    result["top_features"] = meta_sys.get("top_features", [])
+
+    # ── Feature data + model ─────────────────────────────────
+    model_path = meta_sys.get("model_path")
+    if not model_path or not os.path.exists(model_path):
+        return result
+
     try:
-        df = data_builder.build()
+        model = joblib.load(model_path)
+        df    = db_mod.build()
     except Exception:
-        df = pd.DataFrame()
+        return result
 
     if df.empty:
-        return summary
+        return result
 
-    latest = df.iloc[-1]
-    for target, info in summary.items():
-        path = info.get("model_path")
-        if not path or not os.path.exists(path):
-            continue
-        try:
-            model = joblib.load(path)
-            feat_names = list(model.feature_names_in_) if hasattr(model, "feature_names_in_") else list(df.columns)
-            x = latest.reindex(feat_names).fillna(df[feat_names].median()).values.reshape(1, -1)
-            info["predicted"] = float(model.predict(x)[0])
-            info["predicted_for_date"] = pd.Timestamp(latest.name).to_pydatetime().date()
-        except Exception:
-            info["predicted"] = None
+    feat_names = (list(model.feature_names_in_)
+                  if hasattr(model, "feature_names_in_") else [])
+    if not feat_names:
+        return result
 
-    return summary
+    latest   = df.iloc[-1].reindex(feat_names).fillna(df[feat_names].median())
+    x_latest = latest.values.reshape(1, -1)
+    booster  = model.get_booster()
+
+    # ── WHY: SHAP contributions for latest reading ───────────
+    try:
+        dmat     = xgb.DMatrix(x_latest, feature_names=feat_names)
+        contribs = booster.predict(dmat, pred_contribs=True)[0]
+        shap_map = dict(zip(feat_names, contribs[:-1]))  # drop bias term
+
+        for feat, shap_val in sorted(shap_map.items(),
+                                     key=lambda kv: abs(kv[1]),
+                                     reverse=True)[:5]:
+            base  = feat.replace("_lag1", "")
+            label = analysis.COL_LABELS.get(base, base.replace("_", " ").title())
+            result["why"].append({
+                "label":        label,
+                "value":        float(latest[feat]) if feat in latest.index else None,
+                "feat":         feat,
+                "contribution": round(float(shap_val), 1),
+                "direction":    "up" if shap_val > 0 else "down",
+            })
+    except Exception:
+        pass
+
+    # ── TODAY: counterfactual goals ──────────────────────────
+    try:
+        pred_curr = float(model.predict(x_latest)[0])
+        for feat, (label, goal_dir, _) in ACTIONABLE_LAG_FEATURES.items():
+            if feat not in feat_names:
+                continue
+            history = df[feat].dropna()
+            if len(history) < 5:
+                continue
+
+            good_val    = float(history.quantile(0.25 if goal_dir == "lower" else 0.75))
+            current_val = float(latest[feat])
+
+            if goal_dir == "lower"  and current_val <= good_val: continue
+            if goal_dir == "higher" and current_val >= good_val: continue
+
+            x_sim              = latest.values.copy()
+            x_sim[feat_names.index(feat)] = good_val
+            dmat_sim           = xgb.DMatrix(x_sim.reshape(1, -1), feature_names=feat_names)
+            delta              = round(pred_curr - float(booster.predict(dmat_sim)[0]), 1)
+
+            if delta < 0.5:
+                continue
+
+            result["goals"].append({
+                "label":      label,
+                "current":    round(current_val, 1),
+                "target":     round(good_val, 1),
+                "direction":  goal_dir,
+                "delta_mmhg": delta,
+                "feat":       feat,
+            })
+
+        result["goals"].sort(key=lambda g: g["delta_mmhg"], reverse=True)
+        result["goals"] = result["goals"][:3]
+    except Exception:
+        pass
+
+    return result
 
 def bust_cache():
     get_data.clear(); get_findings.clear()
     get_experiments.clear(); get_targets.clear()
-    get_bp_data.clear(); get_bp_model_summary.clear()
+    get_bp_data.clear(); get_bp_insights.clear()
 
 # ─────────────────────────────────────────────────────────────
 # HELPERS
@@ -997,7 +1112,7 @@ if page == "Explorer":
 # ─────────────────────────────────────────────────────────────
 
 if page == "Blood Pressure":
-    from ml import data_builder
+    from ml import data_builder as _db
 
     st.title("Blood Pressure")
 
@@ -1006,82 +1121,114 @@ if page == "Blood Pressure":
     if bp is None or bp.empty:
         st.caption("No blood pressure readings yet.")
         st.markdown(
-            "Log 2 AM readings (~8am) and 2 PM readings (~6pm) per day in "
-            "`bp_readings`. Once enough history accumulates, the weekly pipeline "
-            "trains `am_systolic` and `am_diastolic` models against the previous "
-            "day's nutrition, activity, sleep and recovery inputs."
+            "Log 2 AM readings (~8am) and 2 PM readings (~6pm) per day. "
+            "Once 30+ days accumulate the model learns your personal triggers "
+            "and surfaces actionable goals."
         )
         st.stop()
 
-    bp = bp.sort_index()
-    offset = data_builder.am_to_pm_offset(bp, window=30)
-    summary = get_bp_model_summary()
+    bp      = bp.sort_index()
+    insights = get_bp_insights()
+    baseline = insights.get("baseline", {})
+    conf     = insights.get("confidence", {})
 
-    # ── Latest readings + offset ─────────────────────────────
-    latest_am = bp[["AM_systolic", "AM_diastolic"]].dropna(how="all").tail(1)
-    latest_pm = bp[["PM_systolic", "PM_diastolic"]].dropna(how="all").tail(1)
+    def _fmt(val, feat):
+        """Format a raw feature value for human display."""
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            return "—"
+        _, _, unit = ACTIONABLE_LAG_FEATURES.get(feat, ("", "", ""))
+        if unit == "hrs":   return f"{val / 60:.1f} hrs"
+        if unit == "mg":    return f"{int(round(val)):,} mg"
+        if unit == "ml":    return f"{int(round(val)):,} ml"
+        if unit == "min":   return f"{int(round(val))} min"
+        if unit == "units": return f"{val:.1f}"
+        return f"{int(round(val)):,}" if val >= 100 else f"{val:.1f}"
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if not latest_am.empty:
-            sys_v = latest_am["AM_systolic"].iloc[0]
-            dia_v = latest_am["AM_diastolic"].iloc[0]
-            date_v = pd.Timestamp(latest_am.index[0]).strftime("%-d %b")
-            st.metric("Latest AM",
-                      f"{sys_v:.0f} / {dia_v:.0f}",
-                      delta=f"avg of 2 · {date_v}", delta_color="off")
+    # ── Latest reading + baseline delta ─────────────────────
+    latest_sys = baseline.get("latest_sys")
+    latest_dia = baseline.get("latest_dia")
+    delta_sys  = baseline.get("delta_sys")
+    pct_sys    = baseline.get("pct_sys")
+    read_date  = baseline.get("reading_date", "")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        val_str = f"{latest_sys:.0f} / {latest_dia:.0f}" if latest_sys else "—"
+        st.metric("Latest AM reading", val_str,
+                  delta=f"avg of 2 · {read_date}" if read_date else None,
+                  delta_color="off")
+    with c2:
+        if delta_sys is not None and pct_sys is not None:
+            sign   = "+" if delta_sys > 0 else ""
+            color  = "inverse" if delta_sys > 0 else "normal"
+            st.metric("vs your 30d baseline",
+                      f"{sign}{delta_sys:.1f} mmHg",
+                      delta=f"{sign}{pct_sys:.1f}%",
+                      delta_color=color)
         else:
-            st.metric("Latest AM", "—")
-    with col2:
-        if not latest_pm.empty:
-            sys_v = latest_pm["PM_systolic"].iloc[0]
-            dia_v = latest_pm["PM_diastolic"].iloc[0]
-            date_v = pd.Timestamp(latest_pm.index[0]).strftime("%-d %b")
-            st.metric("Latest PM",
-                      f"{sys_v:.0f} / {dia_v:.0f}",
-                      delta=f"avg of 2 · {date_v}", delta_color="off")
+            st.metric("vs your 30d baseline", "—")
+    with c3:
+        if conf:
+            tier    = conf.get("tier", "—").capitalize()
+            mae_sys = conf.get("mae_sys")
+            mae_dia = conf.get("mae_dia")
+            mae_str = (f"±{mae_sys:.1f}/{mae_dia:.1f} mmHg accuracy"
+                       if mae_sys and mae_dia else "model not yet trained")
+            st.metric("Model", tier, delta=mae_str, delta_color="off")
         else:
-            st.metric("Latest PM", "—")
-    with col3:
-        st.metric("Personal AM→PM offset",
-                  f"+{offset['systolic']:.1f} / +{offset['diastolic']:.1f}",
-                  delta="30d mean (PM − AM)", delta_color="off")
+            st.metric("Model", "Calibrating", delta="30+ days needed", delta_color="off")
 
-    # ── Model predictions ────────────────────────────────────
-    sys_info = summary.get("am_systolic", {})
-    dia_info = summary.get("am_diastolic", {})
-    pred_sys = sys_info.get("predicted")
-    pred_dia = dia_info.get("predicted")
+    # ── WHY ──────────────────────────────────────────────────
+    why = insights.get("why", [])
+    if why:
+        st.divider()
+        st.markdown("#### What drove this reading")
+        st.caption("Yesterday's inputs ranked by how much they contributed to your AM result. "
+                   "Based on your personal model, not population averages.")
 
-    st.divider()
-    st.markdown("#### Next-morning prediction")
+        for item in why:
+            contrib = item["contribution"]
+            val_str = _fmt(item["value"], item["feat"])
+            sign    = f"+{contrib:.1f}" if contrib > 0 else f"{contrib:.1f}"
+            color   = RED if contrib > 0 else GREEN
+            with st.container(border=True):
+                ca, cb = st.columns([3, 1])
+                ca.markdown(f"**{item['label']}** — {val_str} yesterday")
+                cb.markdown(
+                    f"<span style='color:{color};font-size:1.1rem;font-weight:600'>"
+                    f"{sign} mmHg</span>",
+                    unsafe_allow_html=True,
+                )
 
-    if pred_sys is None or pred_dia is None:
-        st.caption("No trained model yet — predictions appear after the first successful pipeline run.")
-    else:
-        pred_date = sys_info.get("predicted_for_date")
-        pred_caption = f"Predicted for {pred_date:%-d %b}" if pred_date else "Latest prediction"
+    # ── TODAY'S GOALS ────────────────────────────────────────
+    goals = insights.get("goals", [])
+    if goals:
+        st.divider()
+        st.markdown("#### Today's goals")
+        st.caption("Do these today. Each estimated impact is your personal counterfactual — "
+                   "everything else held equal.")
 
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.metric("Predicted AM",
-                      f"{pred_sys:.0f} / {pred_dia:.0f}",
-                      delta=pred_caption, delta_color="off")
-        with c2:
-            expected_pm_sys = pred_sys + offset["systolic"]
-            expected_pm_dia = pred_dia + offset["diastolic"]
-            st.metric("Expected PM",
-                      f"{expected_pm_sys:.0f} / {expected_pm_dia:.0f}",
-                      delta="predicted AM + personal offset", delta_color="off")
-        with c3:
-            sys_mae = sys_info.get("test_mae")
-            dia_mae = dia_info.get("test_mae")
-            tier = sys_info.get("tier", "—").capitalize()
-            mae_str = (f"±{sys_mae:.1f}/{dia_mae:.1f} mmHg"
-                       if sys_mae is not None and dia_mae is not None else "—")
-            st.metric("Model confidence", tier, delta=mae_str, delta_color="off")
+        arrow = {"lower": "↓", "higher": "↑"}
+        for g in goals:
+            target_str  = _fmt(g["target"],  g["feat"])
+            current_str = _fmt(g["current"], g["feat"])
+            with st.container(border=True):
+                ca, cb = st.columns([3, 1])
+                ca.markdown(
+                    f"**{arrow[g['direction']]} {g['label']}** — "
+                    f"target {target_str}  ·  you avg {current_str}"
+                )
+                cb.markdown(
+                    f"<span style='color:{GREEN};font-size:1.1rem;font-weight:600'>"
+                    f"−{g['delta_mmhg']:.1f} mmHg</span>",
+                    unsafe_allow_html=True,
+                )
+    elif conf:
+        st.divider()
+        st.caption("Goals appear once the model has identified actionable levers. "
+                   "Keep logging — they sharpen with more data.")
 
-    # ── 30-day trend ─────────────────────────────────────────
+    # ── 30-day trend (actuals only) ──────────────────────────
     st.divider()
     st.markdown("#### Last 30 days")
 
@@ -1089,43 +1236,41 @@ if page == "Blood Pressure":
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08,
                         subplot_titles=["Systolic", "Diastolic"])
     fig.add_trace(go.Scatter(x=recent.index, y=recent["AM_systolic"],
-                             name="AM systolic", mode="lines+markers",
+                             name="AM", mode="lines+markers",
                              line=dict(color=BLUE, width=2)), row=1, col=1)
     fig.add_trace(go.Scatter(x=recent.index, y=recent["PM_systolic"],
-                             name="PM systolic", mode="lines+markers",
+                             name="PM", mode="lines+markers",
                              line=dict(color=ORANGE, width=2, dash="dot")), row=1, col=1)
     fig.add_trace(go.Scatter(x=recent.index, y=recent["AM_diastolic"],
-                             name="AM diastolic", mode="lines+markers",
-                             line=dict(color=BLUE, width=2), showlegend=False), row=2, col=1)
+                             name="AM", mode="lines+markers", showlegend=False,
+                             line=dict(color=BLUE, width=2)), row=2, col=1)
     fig.add_trace(go.Scatter(x=recent.index, y=recent["PM_diastolic"],
-                             name="PM diastolic", mode="lines+markers",
-                             line=dict(color=ORANGE, width=2, dash="dot"), showlegend=False), row=2, col=1)
-    fig.update_layout(height=520, margin=dict(t=40, b=20),
+                             name="PM", mode="lines+markers", showlegend=False,
+                             line=dict(color=ORANGE, width=2, dash="dot")), row=2, col=1)
+    fig.update_layout(height=500, margin=dict(t=40, b=20),
                       legend=dict(orientation="h", y=1.12),
                       yaxis=dict(title="mmHg"), yaxis2=dict(title="mmHg"))
     st.plotly_chart(fig, use_container_width=True)
 
-    # ── Top drivers ──────────────────────────────────────────
-    top_sys = sys_info.get("top_features") or []
-    if top_sys:
+    # ── What consistently moves your BP ─────────────────────
+    top_features = insights.get("top_features", [])
+    if top_features:
         st.divider()
-        st.markdown("#### Top drivers (AM systolic)")
-        st.caption("Features the model weighted most heavily — ranked by importance.")
+        st.markdown("#### What consistently moves your BP")
+        st.caption("Overall feature importance from your personal model — "
+                   "not today's SHAP, but what has mattered most across all your readings.")
 
-        feat_names = [analysis.COL_LABELS.get(
+        names = [analysis.COL_LABELS.get(
             f["feature"].replace("_lag1", ""), f["feature"].replace("_lag1", "")
-        ) for f in top_sys[:10]]
-        feat_imps = [f["importance"] for f in top_sys[:10]]
-        max_imp = max(feat_imps) if feat_imps else 1
-
+        ) for f in top_features[:10]]
+        imps     = [f["importance"] for f in top_features[:10]]
+        max_imp  = max(imps) if imps else 1
         fig = go.Figure(go.Bar(
-            x=feat_imps,
-            y=feat_names,
-            orientation="h",
-            marker_color=[BLUE if i > max_imp * 0.5 else GRAY for i in feat_imps],
+            x=imps, y=names, orientation="h",
+            marker_color=[BLUE if i > max_imp * 0.5 else GRAY for i in imps],
         ))
         fig.update_layout(
-            height=40 * len(feat_names) + 60,
+            height=40 * len(names) + 60,
             margin=dict(l=0, r=20, t=20, b=0),
             xaxis_title="Importance",
             yaxis=dict(autorange="reversed"),
