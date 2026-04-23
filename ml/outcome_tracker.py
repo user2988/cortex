@@ -1,9 +1,9 @@
 """
 Cortex ML — Outcome Tracker
 
-Evaluates past recommendations by comparing the user's actual wellness
-score in the 7 days before vs. the 7 days after each recommendation was
-issued. Writes results to ml_recommendation_outcomes.
+Evaluates past recommendations by comparing the user's actual MAP
+(Mean Arterial Pressure) in the 7 days before vs. the 7 days after
+each recommendation was issued. Writes results to ml_recommendation_outcomes.
 
 This closes the feedback loop: the pipeline can now report whether its
 recommendations were followed by measurable improvement.
@@ -13,10 +13,11 @@ Design notes
 - Runs at the start of the weekly pipeline, before new training.
 - Only evaluates recommendations that are 7+ days old and have not yet
   been evaluated (prevents double-counting).
-- Wellness scores are recomputed fresh on the full history each run so
-  normalisation bounds stay consistent with the user's current range.
+- MAP values are recomputed fresh on the full history each run so bounds
+  stay consistent with the user's current data range.
 - Outcome is descriptive — it shows what happened, not whether the user
   actually followed the recommendation (we don't track adherence yet).
+- For MAP: a negative delta (after < before) means improvement.
 """
 
 import os
@@ -40,9 +41,9 @@ CREATE TABLE IF NOT EXISTS ml_recommendation_outcomes (
     id                  SERIAL PRIMARY KEY,
     recommendation_id   INTEGER REFERENCES ml_recommendations(id),
     evaluated_at        TIMESTAMPTZ  NOT NULL,
-    wellness_before_avg NUMERIC(6, 2),
-    wellness_after_avg  NUMERIC(6, 2),
-    wellness_delta      NUMERIC(6, 2),
+    map_before_avg      NUMERIC(6, 2),
+    map_after_avg       NUMERIC(6, 2),
+    map_delta           NUMERIC(6, 2),
     predicted_delta     NUMERIC(6, 2),
     n_days_before       INTEGER,
     n_days_after        INTEGER,
@@ -66,7 +67,7 @@ def _load_pending() -> list[dict]:
     Return recommendations that are 7+ days old and not yet evaluated.
     """
     sql = """
-        SELECT r.id, r.run_at, r.current_wellness_avg, r.predicted_wellness
+        SELECT r.id, r.run_at, r.current_map_avg, r.predicted_map
         FROM ml_recommendations r
         LEFT JOIN ml_recommendation_outcomes o ON o.recommendation_id = r.id
         WHERE o.id IS NULL
@@ -92,11 +93,12 @@ def _write_outcome(
     n_before: int,
     n_after: int,
 ) -> None:
+    # For MAP: delta = after - before. Negative = improvement (lower pressure).
     delta = round(after_avg - before_avg, 2) if (after_avg is not None and before_avg is not None) else None
     sql = """
         INSERT INTO ml_recommendation_outcomes
-            (recommendation_id, evaluated_at, wellness_before_avg,
-             wellness_after_avg, wellness_delta, predicted_delta,
+            (recommendation_id, evaluated_at, map_before_avg,
+             map_after_avg, map_delta, predicted_delta,
              n_days_before, n_days_after)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
     """
@@ -122,15 +124,15 @@ def _write_outcome(
 # PUBLIC INTERFACE
 # ─────────────────────────────────────────────────────────────
 
-def evaluate(scores: pd.Series) -> int:
+def evaluate(map_scores: pd.Series) -> int:
     """
-    Evaluate all pending recommendations against actual wellness scores.
+    Evaluate all pending recommendations against actual MAP values.
 
     Parameters
     ----------
-    scores : pd.Series
-        Full-history daily wellness scores indexed by date (tz-naive).
-        Produced by wellness_score.compute(df).
+    map_scores : pd.Series
+        Full-history daily MAP values indexed by date (tz-naive).
+        Produced by bp_target.compute(df).
 
     Returns
     -------
@@ -149,23 +151,23 @@ def evaluate(scores: pd.Series) -> int:
     for rec in pending:
         rec_date = pd.Timestamp(rec["run_at"]).tz_localize(None).normalize()
 
-        before = scores[
-            (scores.index >= rec_date - pd.Timedelta(days=WINDOW_DAYS)) &
-            (scores.index <  rec_date)
+        before = map_scores[
+            (map_scores.index >= rec_date - pd.Timedelta(days=WINDOW_DAYS)) &
+            (map_scores.index <  rec_date)
         ].dropna()
 
-        after = scores[
-            (scores.index >= rec_date) &
-            (scores.index <  rec_date + pd.Timedelta(days=WINDOW_DAYS))
+        after = map_scores[
+            (map_scores.index >= rec_date) &
+            (map_scores.index <  rec_date + pd.Timedelta(days=WINDOW_DAYS))
         ].dropna()
 
         before_avg = float(before.mean()) if len(before) >= 3 else None
         after_avg  = float(after.mean())  if len(after)  >= 3 else None
 
-        # Predicted delta: what the model said it would improve by
+        # Predicted delta: current_map_avg - predicted_map (positive = improvement)
         predicted_delta = None
-        if rec["current_wellness_avg"] is not None and rec["predicted_wellness"] is not None:
-            predicted_delta = float(rec["predicted_wellness"]) - float(rec["current_wellness_avg"])
+        if rec["current_map_avg"] is not None and rec["predicted_map"] is not None:
+            predicted_delta = float(rec["current_map_avg"]) - float(rec["predicted_map"])
 
         _write_outcome(
             recommendation_id = rec["id"],
@@ -178,8 +180,9 @@ def evaluate(scores: pd.Series) -> int:
         )
 
         delta_str = (f"{after_avg - before_avg:+.1f}" if before_avg and after_avg else "insufficient data")
-        print(f"    rec_id={rec['id']}  before={before_avg:.1f if before_avg else '—'}  "
-              f"after={after_avg:.1f if after_avg else '—'}  delta={delta_str}")
+        ba = f"{before_avg:.1f}" if before_avg is not None else "—"
+        aa = f"{after_avg:.1f}"  if after_avg  is not None else "—"
+        print(f"    rec_id={rec['id']}  before={ba}  after={aa}  delta={delta_str} mmHg")
         evaluated += 1
 
     return evaluated

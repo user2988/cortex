@@ -2,12 +2,12 @@
 Cortex ML — Component 4: Stack Optimiser
 
 Uses the trained XGBoost model to find the nutrition and activity targets
-that maximise the predicted wellness score for this specific user.
+that minimise predicted MAP (Mean Arterial Pressure) for this specific
+user. Lower MAP is better for cardiovascular health.
 
 Optimisation principles
 -----------------------
 - Both nutrition and activity features are optimised.
-- Supplement optimisation will be added once the supplements table is live.
 - Only features the model considers important (above mean importance)
   are varied — the rest are held at the user's 30-day average.
 - Activity recommendations are capped at 40 % above the user's 30-day
@@ -22,7 +22,8 @@ Optimisation method
 -------------------
 scipy.optimize.differential_evolution — a global, gradient-free
 optimiser that works well with XGBoost's black-box predictions and
-handles box constraints natively.
+handles box constraints natively. The objective is to minimise predicted
+MAP (no sign flip needed since lower is better).
 """
 
 import os
@@ -117,15 +118,15 @@ NUTRITION_BOUNDS: dict[str, tuple] = {
 
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS ml_recommendations (
-    id                   SERIAL PRIMARY KEY,
-    run_at               TIMESTAMPTZ NOT NULL,
-    model_run_id         INTEGER REFERENCES ml_model_runs(id),
-    confidence_tier      TEXT        NOT NULL,
-    n_days_data          INTEGER     NOT NULL,
-    current_wellness_avg NUMERIC(6, 2),
-    predicted_wellness   NUMERIC(6, 2),
-    recommendations      JSONB       NOT NULL,
-    created_at           TIMESTAMPTZ DEFAULT NOW()
+    id               SERIAL PRIMARY KEY,
+    run_at           TIMESTAMPTZ NOT NULL,
+    model_run_id     INTEGER REFERENCES ml_model_runs(id),
+    confidence_tier  TEXT        NOT NULL,
+    n_days_data      INTEGER     NOT NULL,
+    current_map_avg  NUMERIC(6, 2),
+    predicted_map    NUMERIC(6, 2),
+    recommendations  JSONB       NOT NULL,
+    created_at       TIMESTAMPTZ DEFAULT NOW()
 );
 """
 
@@ -150,17 +151,11 @@ def _write_recommendation(
     predicted: float,
     recommendations: dict,
 ) -> int:
-    """
-    Insert a recommendation record and return its generated id.
-
-    Parameters
-    ----------
-    recommendations : structured dict with 'activity' and 'supplements' keys
-    """
+    """Insert a recommendation record and return its generated id."""
     sql = """
         INSERT INTO ml_recommendations
             (run_at, model_run_id, confidence_tier, n_days_data,
-             current_wellness_avg, predicted_wellness, recommendations)
+             current_map_avg, predicted_map, recommendations)
         VALUES (%s, %s, %s, %s, %s, %s, %s)
         RETURNING id
     """
@@ -291,13 +286,13 @@ def _optimise(
     bounds: list[tuple[float, float]],
 ) -> np.ndarray:
     """
-    Run differential evolution to find the feature vector that maximises
-    the predicted wellness score.
+    Run differential evolution to find the feature vector that minimises
+    predicted MAP (lower MAP = better cardiovascular health).
 
     Parameters
     ----------
     template    : baseline feature vector (30-day averages for all features)
-    opt_cols    : activity column names being optimised (base names, not lagged)
+    opt_cols    : column base names being optimised (not lagged)
     opt_indices : positions of opt_cols' lagged equivalents in feature_cols
     bounds      : (lower, upper) per optimised column
 
@@ -309,7 +304,8 @@ def _optimise(
         vec = template.copy()
         for i, idx in enumerate(opt_indices):
             vec[idx] = x[i]
-        return -float(model.predict(vec.reshape(1, -1))[0])
+        # Minimise predicted MAP directly (lower is better — no sign flip)
+        return float(model.predict(vec.reshape(1, -1))[0])
 
     result = differential_evolution(
         objective,
@@ -357,16 +353,16 @@ def _build_rec(col, bounds_dict, avgs, optimised_vec, feature_cols, importances)
 
 def optimise(
     df: pd.DataFrame,
-    scores: pd.Series,
+    map_scores: pd.Series,
     train_result: dict,
 ) -> dict | None:
     """
-    Find the nutrition and activity targets that maximise predicted wellness.
+    Find the nutrition and activity targets that minimise predicted MAP.
 
     Parameters
     ----------
     df           : feature DataFrame from data_builder.build()
-    scores       : wellness scores from wellness_score.compute()
+    map_scores   : daily MAP values from bp_target.compute()
     train_result : dict returned by model_trainer.train()
 
     Returns
@@ -408,16 +404,16 @@ def optimise(
         if lag_col in feature_cols and col in avgs:
             template[feature_cols.index(lag_col)] = avgs[col]
 
-    baseline_score = float(model.predict(template.reshape(1, -1))[0])
-    print(f"  Baseline predicted wellness : {baseline_score:.2f}")
+    baseline_map = float(model.predict(template.reshape(1, -1))[0])
+    print(f"  Baseline predicted MAP : {baseline_map:.2f} mmHg")
 
     # Optimisation bounds — one entry per optimisable column
     opt_indices = [feature_cols.index(_lag_name(c)) for c in all_opt_cols]
     opt_bounds  = [_user_bounds(c, avgs[c]) for c in all_opt_cols]
 
-    optimised_vec   = _optimise(model, template, feature_cols, all_opt_cols, opt_indices, opt_bounds)
-    optimised_score = float(model.predict(optimised_vec.reshape(1, -1))[0])
-    print(f"  Optimised predicted wellness: {optimised_score:.2f}")
+    optimised_vec = _optimise(model, template, feature_cols, all_opt_cols, opt_indices, opt_bounds)
+    optimised_map = float(model.predict(optimised_vec.reshape(1, -1))[0])
+    print(f"  Optimised predicted MAP: {optimised_map:.2f} mmHg")
 
     activity_recs  = [_build_rec(c, ACTIVITY_BOUNDS,  avgs, optimised_vec, feature_cols, importances) for c in act_cols]
     nutrition_recs = [_build_rec(c, NUTRITION_BOUNDS, avgs, optimised_vec, feature_cols, importances) for c in nut_cols]
@@ -431,7 +427,7 @@ def optimise(
         "supplements": [],
     }
 
-    current_avg_score = float(scores.dropna().tail(LOOKBACK_DAYS).mean())
+    current_avg_map = float(map_scores.dropna().tail(LOOKBACK_DAYS).mean())
 
     for label, recs in [("Activity", activity_recs), ("Nutrition", nutrition_recs)]:
         if recs:
@@ -447,19 +443,19 @@ def optimise(
         model_run_id    = model_run_id,
         tier            = tier,
         n_days          = n_rows,
-        current_avg     = current_avg_score,
-        predicted       = optimised_score,
+        current_avg     = current_avg_map,
+        predicted       = optimised_map,
         recommendations = recommendations,
     )
     print(f"\n  Recommendation written (id={rec_id}).")
 
     return {
-        "rec_id":             rec_id,
-        "tier":               tier,
-        "n_days":             n_rows,
-        "current_wellness":   round(current_avg_score, 2),
-        "predicted_wellness": round(optimised_score, 2),
-        "recommendations":    recommendations,
+        "rec_id":       rec_id,
+        "tier":         tier,
+        "n_days":       n_rows,
+        "current_map":  round(current_avg_map, 2),
+        "predicted_map": round(optimised_map, 2),
+        "recommendations": recommendations,
     }
 
 
@@ -467,7 +463,7 @@ if __name__ == "__main__":
     import sys
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
-    from ml import data_builder, wellness_score, model_trainer
+    from ml import data_builder, bp_target, model_trainer
 
     print("[stack_optimiser] Building data...")
     df = data_builder.build()
@@ -475,17 +471,17 @@ if __name__ == "__main__":
         print("No data — exiting.")
         sys.exit(0)
 
-    print("[stack_optimiser] Computing wellness scores...")
-    scores = wellness_score.compute(df)
+    print("[stack_optimiser] Computing MAP target...")
+    map_scores = bp_target.compute(df)
 
     print("[stack_optimiser] Training model...")
-    result = model_trainer.train(df, scores)
+    result = model_trainer.train(df, map_scores)
     if result is None:
         print("Insufficient data for optimisation.")
         sys.exit(0)
 
     print("[stack_optimiser] Optimising stack...")
-    rec = optimise(df, scores, result)
+    rec = optimise(df, map_scores, result)
     if rec:
         print(f"\nDone. rec_id={rec['rec_id']}  "
-              f"wellness {rec['current_wellness']:.1f} → {rec['predicted_wellness']:.1f}")
+              f"MAP {rec['current_map']:.1f} → {rec['predicted_map']:.1f} mmHg")

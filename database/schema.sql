@@ -160,6 +160,25 @@ CREATE TABLE IF NOT EXISTS weight (
 );
 
 
+-- Blood Pressure — up to 2 readings per session (AM / PM) per day
+-- MAP (Mean Arterial Pressure) = (systolic + 2 * diastolic) / 3
+-- Logged manually via the Streamlit UI; unique per date + session.
+CREATE TABLE IF NOT EXISTS blood_pressure_logs (
+    id                      SERIAL PRIMARY KEY,
+    date                    DATE        NOT NULL,
+    session                 TEXT        NOT NULL CHECK (session IN ('AM', 'PM')),
+
+    reading_1_systolic      INTEGER,
+    reading_1_diastolic     INTEGER,
+    reading_2_systolic      INTEGER,
+    reading_2_diastolic     INTEGER,
+
+    logged_at               TIMESTAMPTZ DEFAULT NOW(),
+
+    UNIQUE (date, session)
+);
+
+
 -- Findings — correlation/analysis results, updated weekly by the findings job
 -- Also populated on demand via the Streamlit Explorer (pinned=true for manual saves)
 CREATE TABLE IF NOT EXISTS findings (
@@ -208,3 +227,4 @@ CREATE INDEX IF NOT EXISTS idx_nutrition_date   ON nutrition(date DESC);
 CREATE INDEX IF NOT EXISTS idx_weight_date      ON weight(date DESC);
 CREATE INDEX IF NOT EXISTS idx_findings_r2      ON findings(r_squared DESC);
 CREATE INDEX IF NOT EXISTS idx_experiments_date ON experiments(start_date DESC);
+CREATE INDEX IF NOT EXISTS idx_bp_logs_date     ON blood_pressure_logs(date DESC);

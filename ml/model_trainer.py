@@ -1,9 +1,10 @@
 """
 Cortex ML — Component 3: Model Trainer
 
-Trains an XGBoost regression model to predict the daily wellness score
-from lagged nutrition and activity features. Writes model metadata and
-feature importances to the database. Saves the trained model to disk.
+Trains an XGBoost regression model to predict daily MAP (Mean Arterial
+Pressure) from lagged nutrition and activity features. Writes model
+metadata and feature importances to the database. Saves the trained
+model to disk.
 
 Confidence tiers (based on number of complete training rows)
 ------------------------------------------------------------
@@ -34,7 +35,7 @@ from sklearn.metrics import mean_absolute_error, root_mean_squared_error
 DATABASE_URL = os.environ["DATABASE_URL"]
 
 MODEL_DIR  = Path(__file__).parent / "models"
-MODEL_PATH = MODEL_DIR / "wellness_model.joblib"
+MODEL_PATH = MODEL_DIR / "bp_model.joblib"
 
 TEST_FRACTION  = 0.20   # fraction of rows held out as test set
 TOP_N_FEATURES = 20     # number of top features written to DB
@@ -188,12 +189,12 @@ def _build_model() -> XGBRegressor:
 
 def train(df: pd.DataFrame, scores: pd.Series) -> dict | None:
     """
-    Train the wellness model and persist artefacts to disk and database.
+    Train the BP model and persist artefacts to disk and database.
 
     Parameters
     ----------
     df     : feature DataFrame from data_builder.build()
-    scores : wellness scores from wellness_score.compute()
+    scores : daily MAP values from bp_target.compute()
 
     Returns
     -------
@@ -321,7 +322,7 @@ if __name__ == "__main__":
     import sys
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
-    from ml import data_builder, wellness_score
+    from ml import data_builder, bp_target
 
     print("[model_trainer] Building data...")
     df = data_builder.build()
@@ -329,8 +330,8 @@ if __name__ == "__main__":
         print("No data — exiting.")
         sys.exit(0)
 
-    print("[model_trainer] Computing wellness scores...")
-    scores = wellness_score.compute(df)
+    print("[model_trainer] Computing MAP target...")
+    scores = bp_target.compute(df)
 
     print("[model_trainer] Training model...")
     result = train(df, scores)

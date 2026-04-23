@@ -3,9 +3,10 @@ Cortex ML — Component 5: Pipeline Orchestrator
 
 Runs the full ML pipeline end-to-end in the correct order:
     1. data_builder  — load and transform data
-    2. wellness_score — compute daily target scores
-    3. model_trainer  — train XGBoost model
-    4. stack_optimiser — find optimal activity targets
+    2. bp_target     — compute daily MAP target from blood_pressure_logs
+    3. outcome_tracker — evaluate last week's recommendations
+    4. model_trainer  — train XGBoost model on MAP
+    5. stack_optimiser — find optimal activity/nutrition targets
 
 This is the entry point called by GitHub Actions each week.
 
@@ -32,7 +33,7 @@ from pathlib import Path
 # Ensure the repo root is on the path when called directly
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from ml import data_builder, wellness_score, model_trainer, stack_optimiser, outcome_tracker
+from ml import data_builder, bp_target, model_trainer, stack_optimiser, outcome_tracker
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
@@ -112,10 +113,10 @@ def run() -> bool:  # noqa: C901
     Stages
     ------
     1. data_builder    — load and transform data
-    2. wellness_score  — compute daily target scores
+    2. bp_target       — compute daily MAP target from blood_pressure_logs
     3. outcome_tracker — evaluate last week's recommendations
-    4. model_trainer   — train XGBoost model
-    5. stack_optimiser — find optimal targets
+    4. model_trainer   — train XGBoost model on MAP
+    5. stack_optimiser — find optimal activity/nutrition targets
 
     Returns False on graceful skip or failure. Never raises.
     """
@@ -142,24 +143,27 @@ def run() -> bool:  # noqa: C901
             _log(run_at, "skipped", elapsed(), stage, "empty dataframe")
             return False
 
-        # ── Stage 2: Wellness scores ─────────────────────────
-        stage = "wellness_score"
+        # ── Stage 2: BP target (MAP) ─────────────────────────
+        stage = "bp_target"
         print(f"\n[pipeline] Stage 2 — {stage}")
-        scores = wellness_score.compute(df)
-        valid  = scores.dropna()
-        print(f"  Scored rows : {len(valid)} / {len(scores)}")
-        print(f"  Score range : {valid.min():.1f} – {valid.max():.1f}")
-        print(f"  Score mean  : {valid.mean():.1f}")
+        map_scores = bp_target.compute(df)
+        valid = map_scores.dropna()
+
+        if valid.empty:
+            print("[pipeline] No blood pressure logs found — skipping pipeline.")
+            print("           Log at least 30 days of BP readings to enable ML training.")
+            _log(run_at, "skipped", elapsed(), stage, "no BP readings logged")
+            return False
 
         # ── Stage 3: Outcome evaluation ──────────────────────
         stage = "outcome_tracker"
         print(f"\n[pipeline] Stage 3 — {stage}")
-        outcome_tracker.evaluate(scores)
+        outcome_tracker.evaluate(map_scores)
 
         # ── Stage 4: Model training ──────────────────────────
         stage = "model_trainer"
         print(f"\n[pipeline] Stage 4 — {stage}")
-        train_result = model_trainer.train(df, scores)
+        train_result = model_trainer.train(df, map_scores)
 
         if train_result is None:
             print("[pipeline] Insufficient data — skipping optimisation.")
@@ -169,7 +173,7 @@ def run() -> bool:  # noqa: C901
         # ── Stage 5: Stack optimisation ──────────────────────
         stage = "stack_optimiser"
         print(f"\n[pipeline] Stage 5 — {stage}")
-        rec = stack_optimiser.optimise(df, scores, train_result)
+        rec = stack_optimiser.optimise(df, map_scores, train_result)
 
         if rec is None:
             print("[pipeline] Optimisation produced no recommendations.")
@@ -179,7 +183,7 @@ def run() -> bool:  # noqa: C901
         print(f"\n{'─' * 60}")
         print(f"[pipeline] Completed successfully in {dur:.1f}s")
         if rec:
-            print(f"  Wellness : {rec['current_wellness']:.1f} → {rec['predicted_wellness']:.1f} (predicted)")
+            print(f"  MAP      : {rec['current_map']:.1f} → {rec['predicted_map']:.1f} mmHg (predicted)")
             print(f"  Tier     : {rec['tier']}")
             print(f"  Rec id   : {rec['rec_id']}")
 
