@@ -1,20 +1,26 @@
 """
 Cortex ML — BP Target
 
-Computes daily Mean Arterial Pressure (MAP) from blood_pressure_logs,
-aligned to the feature DataFrame produced by data_builder.build().
+Computes the daily PM Mean Arterial Pressure (MAP) from blood_pressure_logs
+and aligns it to the feature DataFrame produced by data_builder.build().
+
+Why PM specifically?
+--------------------
+The afternoon reading captures the cumulative effect of the day's activity,
+nutrition, and sleep on blood pressure — making it the most informative
+single reading for predicting lifestyle-driven change. The prior-day AM and
+PM readings are both available as *input features* via data_builder; this
+module provides only the *target* the model learns to predict.
 
 MAP formula
 -----------
     MAP = (systolic + 2 × diastolic) / 3
 
-For each session (AM / PM) the MAP of each logged reading is computed,
-then averaged across the two readings to give a session MAP. The daily
-MAP is the mean of available session MAPs (AM and/or PM).
+For the PM session, MAP is computed for each available reading and averaged
+across the two readings to give one value per day.
 
-This is the target variable the XGBoost model learns to predict. Because
-lower blood pressure is generally better, the stack optimiser minimises
-the predicted MAP rather than maximising it.
+Lower MAP is better. The stack optimiser minimises the predicted PM MAP
+rather than maximising it.
 """
 
 import os
@@ -24,10 +30,6 @@ import pandas as pd
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
-
-# ─────────────────────────────────────────────────────────────
-# INTERNAL
-# ─────────────────────────────────────────────────────────────
 
 def _map_value(sys_val, dia_val) -> float | None:
     """Return MAP for a single reading, or None if either value is absent."""
@@ -39,18 +41,23 @@ def _map_value(sys_val, dia_val) -> float | None:
         return None
 
 
-def _load_daily_map() -> pd.Series:
+def _load_pm_map() -> pd.Series:
     """
-    Load all blood_pressure_logs rows and aggregate to one MAP per day.
+    Load PM session data from blood_pressure_logs and return daily PM MAP.
 
-    Returns a pd.Series indexed by date (tz-naive), name='map_mmhg'.
+    Returns a pd.Series indexed by date (tz-naive), name='pm_map'.
+    Only days with a logged PM reading are included; all others are NaN
+    after reindex.
     """
     sql = """
-        SELECT date, session,
+        SELECT date,
                reading_1_systolic, reading_1_diastolic,
                reading_2_systolic, reading_2_diastolic
         FROM blood_pressure_logs
-        ORDER BY date, session
+        WHERE session = 'PM'
+          AND reading_1_systolic  IS NOT NULL
+          AND reading_1_diastolic IS NOT NULL
+        ORDER BY date
     """
     conn = psycopg2.connect(DATABASE_URL)
     try:
@@ -59,38 +66,32 @@ def _load_daily_map() -> pd.Series:
             cols = [d[0] for d in cur.description]
             rows = cur.fetchall()
     except Exception:
-        return pd.Series(dtype=float, name="map_mmhg")
+        return pd.Series(dtype=float, name="pm_map")
     finally:
         conn.close()
 
     if not rows:
-        return pd.Series(dtype=float, name="map_mmhg")
+        return pd.Series(dtype=float, name="pm_map")
 
     df = pd.DataFrame(rows, columns=cols)
     df["date"] = pd.to_datetime(df["date"])
 
-    # Compute MAP per reading, then average across readings for each session
     df["map_r1"] = df.apply(
         lambda r: _map_value(r["reading_1_systolic"], r["reading_1_diastolic"]), axis=1
     )
     df["map_r2"] = df.apply(
         lambda r: _map_value(r["reading_2_systolic"], r["reading_2_diastolic"]), axis=1
     )
-    df["session_map"] = df[["map_r1", "map_r2"]].mean(axis=1, skipna=True)
+    df["pm_map"] = df[["map_r1", "map_r2"]].mean(axis=1, skipna=True)
 
-    # Daily MAP: mean across sessions
-    daily = df.groupby("date")["session_map"].mean()
-    daily.name = "map_mmhg"
+    daily = df.set_index("date")["pm_map"]
+    daily.name = "pm_map"
     return daily
 
 
-# ─────────────────────────────────────────────────────────────
-# PUBLIC INTERFACE
-# ─────────────────────────────────────────────────────────────
-
 def compute(df: pd.DataFrame) -> pd.Series:
     """
-    Return daily MAP values aligned to the feature DataFrame index.
+    Return daily PM MAP values aligned to the feature DataFrame index.
 
     Parameters
     ----------
@@ -100,20 +101,20 @@ def compute(df: pd.DataFrame) -> pd.Series:
     Returns
     -------
     pd.Series
-        Float MAP values (mmHg), indexed identically to df.
-        Dates with no logged BP readings receive NaN.
-        Lower is better: the model learns to predict MAP and the
-        stack optimiser minimises the prediction.
+        Float PM MAP values (mmHg), indexed identically to df.
+        Dates without a logged PM reading receive NaN — those rows are
+        excluded from model training automatically.
+        Lower is better: the stack optimiser minimises predicted PM MAP.
     """
-    daily_map = _load_daily_map()
-    aligned = daily_map.reindex(df.index)
-    aligned.name = "map_mmhg"
+    pm_map = _load_pm_map()
+    aligned = pm_map.reindex(df.index)
+    aligned.name = "pm_map"
 
     valid = aligned.dropna()
     if not valid.empty:
-        print(f"  MAP rows    : {len(valid)} / {len(aligned)}")
-        print(f"  MAP range   : {valid.min():.1f} – {valid.max():.1f} mmHg")
-        print(f"  MAP mean    : {valid.mean():.1f} mmHg")
+        print(f"  PM MAP rows : {len(valid)} / {len(aligned)}")
+        print(f"  PM MAP range: {valid.min():.1f} – {valid.max():.1f} mmHg")
+        print(f"  PM MAP mean : {valid.mean():.1f} mmHg")
 
     return aligned
 

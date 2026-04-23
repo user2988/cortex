@@ -1,9 +1,9 @@
-name: Weekly ML Pipeline
+name: Daily ML Pipeline
 
 on:
   schedule:
-    - cron: '0 17 * * 0'   # Every Sunday at 1:00pm EDT (UTC-4, Mar–Nov)
-    # - cron: '0 18 * * 0' # Every Sunday at 1:00pm EST (UTC-5, Nov–Mar)
+    - cron: '0 18 * * *'   # Every day at 2:00pm EDT (UTC-4, Mar–Nov)
+    # - cron: '0 19 * * *' # Every day at 2:00pm EST (UTC-5, Nov–Mar)
   workflow_dispatch:
 
 jobs:

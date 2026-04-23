@@ -40,10 +40,13 @@ MODEL_PATH = MODEL_DIR / "bp_model.joblib"
 TEST_FRACTION  = 0.20   # fraction of rows held out as test set
 TOP_N_FEATURES = 20     # number of top features written to DB
 
-# Confidence tier thresholds (training rows)
-TIER_INSUFFICIENT = 30
-TIER_LOW          = 60
-TIER_MODERATE     = 90
+# Confidence tier thresholds (training rows with a PM BP reading).
+# Training starts after just 7 days so you get early signal quickly,
+# but the model is fragile at low N — warnings are printed accordingly.
+TIER_INSUFFICIENT = 7    # <  7 days — not enough to fit any model
+TIER_LOW          = 30   # < 30 days — very limited; treat results as directional only
+TIER_MODERATE     = 60   # < 60 days — usable but still maturing
+                          #  60+     — high confidence
 
 
 # ─────────────────────────────────────────────────────────────
@@ -224,9 +227,15 @@ def train(df: pd.DataFrame, scores: pd.Series) -> dict | None:
     print(f"  Confidence tier: {tier}")
 
     if tier == "insufficient":
-        print(f"  Insufficient data (<{TIER_INSUFFICIENT} rows) — skipping training.")
-        print(f"  Keep logging — model training begins after {TIER_INSUFFICIENT} days.")
+        print(f"  Insufficient data (<{TIER_INSUFFICIENT} PM readings) — skipping training.")
+        print(f"  Log PM blood pressure daily; training begins after {TIER_INSUFFICIENT} readings.")
         return None
+
+    if tier == "low":
+        print(f"  WARNING: Only {n_rows} rows — model is very early-stage.")
+        print(f"  Predictions are directional only; confidence improves significantly after 30 days.")
+    elif tier == "moderate":
+        print(f"  NOTE: {n_rows} rows — model is maturing. Expect meaningful improvement after 60 days.")
 
     X_train, X_test, y_train, y_test = _split(X, y)
     print(f"  Train rows : {len(X_train)}  |  Test rows : {len(X_test)}")

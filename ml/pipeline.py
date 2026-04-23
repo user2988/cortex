@@ -143,16 +143,16 @@ def run() -> bool:  # noqa: C901
             _log(run_at, "skipped", elapsed(), stage, "empty dataframe")
             return False
 
-        # ── Stage 2: BP target (MAP) ─────────────────────────
+        # ── Stage 2: BP target (PM MAP) ──────────────────────
         stage = "bp_target"
         print(f"\n[pipeline] Stage 2 — {stage}")
         map_scores = bp_target.compute(df)
         valid = map_scores.dropna()
 
         if valid.empty:
-            print("[pipeline] No blood pressure logs found — skipping pipeline.")
-            print("           Log at least 30 days of BP readings to enable ML training.")
-            _log(run_at, "skipped", elapsed(), stage, "no BP readings logged")
+            print("[pipeline] No PM blood pressure readings found — skipping pipeline.")
+            print("           Log your PM reading daily; training starts after 7 readings.")
+            _log(run_at, "skipped", elapsed(), stage, "no PM BP readings logged")
             return False
 
         # ── Stage 3: Outcome evaluation ──────────────────────
@@ -183,7 +183,7 @@ def run() -> bool:  # noqa: C901
         print(f"\n{'─' * 60}")
         print(f"[pipeline] Completed successfully in {dur:.1f}s")
         if rec:
-            print(f"  MAP      : {rec['current_map']:.1f} → {rec['predicted_map']:.1f} mmHg (predicted)")
+            print(f"  PM MAP   : {rec['current_map']:.1f} → {rec['predicted_map']:.1f} mmHg (predicted)")
             print(f"  Tier     : {rec['tier']}")
             print(f"  Rec id   : {rec['rec_id']}")
 

@@ -1,15 +1,20 @@
 """
 Cortex ML — Component 1: Data Builder
 
-Reads biometrics and nutrition from PostgreSQL, applies lag and smoothing
-transformations, and returns a single clean modelling DataFrame.
+Reads biometrics, nutrition, and blood-pressure session logs from
+PostgreSQL, applies lag and smoothing transformations, and returns a
+single clean modelling DataFrame.
 
 Conventions
 -----------
-- Nutrition columns  : lagged 1 day  (yesterday's intake → today's biometrics)
-- Slow micronutrients: 7-day rolling average applied *before* the 1-day lag
-- Activity columns   : lagged 1 day  (yesterday's activity → today's recovery)
-- Output columns     : never lagged  (these are what the wellness score predicts)
+- Nutrition columns     : lagged 1 day  (yesterday's intake → today's BP)
+- Sleep columns         : lagged 1 day  (last night's sleep → today's BP)
+- Activity columns      : lagged 1 day  (yesterday's activity → today's BP)
+- Prior AM / PM MAP     : lagged 1 day  (yesterday's BP → today's BP)
+- Slow micronutrients   : 7-day rolling average applied *before* the 1-day lag
+- Output (cardio) cols  : never lagged — kept for analysis but not used as
+                          model features; target (PM MAP) comes from the
+                          blood_pressure_logs table via bp_target.compute()
 - Rows missing >50 % of feature columns are dropped
 - Remaining nulls are imputed with each column's median
 """
@@ -25,16 +30,10 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 # COLUMN DEFINITIONS
 # ─────────────────────────────────────────────────────────────
 
-# Biometric outputs — the target variables for the wellness score.
-# These are NEVER lagged; they are what the model learns to predict.
+# Cardiovascular biometric outputs — kept in the DataFrame for Explorer /
+# Insights but NEVER lagged and NOT used as model features.
+# The actual ML target (PM MAP) comes from blood_pressure_logs.
 OUTPUT_COLS = [
-    "sleep_duration_min",
-    "sleep_efficiency_pct",
-    "deep_sleep_min",
-    "rem_sleep_min",
-    "light_sleep_min",
-    "awake_min",
-    "time_in_bed_min",
     "hrv_ms",
     "hrv_deep_rmssd",
     "rhr_bpm",
@@ -45,8 +44,20 @@ OUTPUT_COLS = [
     "vo2_max",
 ]
 
+# Sleep columns — lagged 1 day so last night's sleep quality is an input
+# to today's blood-pressure prediction.
+SLEEP_COLS = [
+    "sleep_duration_min",
+    "sleep_efficiency_pct",
+    "deep_sleep_min",
+    "rem_sleep_min",
+    "light_sleep_min",
+    "awake_min",
+    "time_in_bed_min",
+]
+
 # Biometric inputs — activity metrics the user can influence.
-# Lagged 1 day: yesterday's activity predicts today's recovery.
+# Lagged 1 day: yesterday's activity predicts today's recovery / BP.
 ACTIVITY_COLS = [
     "steps",
     "active_zone_min",
@@ -85,24 +96,21 @@ NUTRITION_COLS = [
 ]
 
 # Micronutrients with slow-acting effects — stored in tissue, build up/deplete
-# over days to weeks. Smoothed with a 7-day rolling average before lagging so
-# the model sees the accumulated exposure level rather than a single-day spike.
+# over days to weeks. Smoothed with a 7-day rolling average before lagging.
 SLOW_MICRONUTRIENTS = [
-    # Fat-soluble vitamins (stored in adipose/liver)
     "vitamin_a_mcg", "vitamin_d_iu", "vitamin_e_mg", "vitamin_k_mcg",
-    # Omega fatty acids (incorporated into cell membranes over 1-4 weeks)
     "omega3_mg", "omega6_mg", "ala_mg", "epa_mg", "dha_mg",
-    # Minerals with meaningful storage pools
     "calcium_mg", "iron_mg", "magnesium_mg", "zinc_mg",
     "selenium_mcg", "copper_mg", "manganese_mg",
-    # B vitamins with hepatic storage
     "vitamin_b12_mcg", "folate_mcg", "biotin_mcg",
 ]
 
-# Maximum fraction of feature columns that may be null before a row is dropped.
+# BP feature column names (after merging from blood_pressure_logs)
+BP_SESSION_COLS = ["am_map", "pm_map"]
+
 MAX_NULL_FRACTION    = 0.50
-SPARSE_COL_THRESHOLD = 0.70   # drop feature columns missing in >70 % of rows
-CORRELATION_THRESHOLD = 0.95  # drop one of any pair correlated above this
+SPARSE_COL_THRESHOLD = 0.70
+CORRELATION_THRESHOLD = 0.95
 
 
 # ─────────────────────────────────────────────────────────────
@@ -113,11 +121,10 @@ def _load_raw() -> pd.DataFrame:
     """
     Load all biometrics and nutrition rows from PostgreSQL.
 
-    Returns a DataFrame indexed by date with all biometric and nutrition
-    columns present. Rows where sleep_duration_min == 0 are excluded
-    (device failure / no-wear nights).
+    Returns a DataFrame indexed by date. Rows where sleep_duration_min == 0
+    are excluded (device failure / no-wear nights).
     """
-    bio_cols = OUTPUT_COLS + ACTIVITY_COLS
+    bio_cols   = OUTPUT_COLS + SLEEP_COLS + ACTIVITY_COLS
     bio_select = ", ".join(f"b.{c}" for c in bio_cols)
     nut_select = ", ".join(f"n.{c}" for c in NUTRITION_COLS)
 
@@ -144,10 +151,63 @@ def _load_raw() -> pd.DataFrame:
     for col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # Drop device-failure rows (tracker worn but no sleep recorded)
     df = df[(df["sleep_duration_min"].isna()) | (df["sleep_duration_min"] > 0)]
-
     return df
+
+
+def _load_bp_sessions() -> pd.DataFrame:
+    """
+    Load per-day AM and PM MAP from blood_pressure_logs.
+
+    For each session, MAP is averaged across available readings.
+    Returns a date-indexed DataFrame with columns am_map and pm_map.
+    Returns an empty DataFrame if the table doesn't exist or has no data.
+    """
+    sql = """
+        SELECT date, session,
+               reading_1_systolic, reading_1_diastolic,
+               reading_2_systolic, reading_2_diastolic
+        FROM blood_pressure_logs
+        WHERE reading_1_systolic IS NOT NULL AND reading_1_diastolic IS NOT NULL
+        ORDER BY date, session
+    """
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            cols = [d[0] for d in cur.description]
+            rows = cur.fetchall()
+    except Exception:
+        return pd.DataFrame()
+    finally:
+        conn.close()
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows, columns=cols)
+    df["date"] = pd.to_datetime(df["date"])
+
+    def _map(sys_val, dia_val):
+        if sys_val is None or dia_val is None:
+            return None
+        return (float(sys_val) + 2.0 * float(dia_val)) / 3.0
+
+    df["map_r1"] = df.apply(
+        lambda r: _map(r["reading_1_systolic"], r["reading_1_diastolic"]), axis=1
+    )
+    df["map_r2"] = df.apply(
+        lambda r: _map(r["reading_2_systolic"], r["reading_2_diastolic"]), axis=1
+    )
+    df["session_map"] = df[["map_r1", "map_r2"]].mean(axis=1, skipna=True)
+
+    pivoted = df.pivot_table(index="date", columns="session", values="session_map", aggfunc="first")
+    pivoted.columns.name = None
+
+    result = pd.DataFrame(index=pivoted.index)
+    result["am_map"] = pivoted.get("AM")
+    result["pm_map"] = pivoted.get("PM")
+    return result
 
 
 # ─────────────────────────────────────────────────────────────
@@ -155,12 +215,7 @@ def _load_raw() -> pd.DataFrame:
 # ─────────────────────────────────────────────────────────────
 
 def _apply_rolling(df: pd.DataFrame, cols: list[str], window: int = 7) -> pd.DataFrame:
-    """
-    Replace specified columns with their rolling mean (min_periods=3).
-
-    Applied to slow-acting micronutrients before lagging so the model
-    sees accumulated exposure rather than a single-day value.
-    """
+    """Replace specified columns with their rolling mean (min_periods=3)."""
     present = [c for c in cols if c in df.columns]
     df[present] = df[present].rolling(window=window, min_periods=3).mean()
     return df
@@ -171,7 +226,7 @@ def _lag_cols(df: pd.DataFrame, cols: list[str], lag: int = 1) -> pd.DataFrame:
     Shift specified columns forward by `lag` days and rename with a suffix.
 
     After shifting, col[t] contains the value from day t-lag, so the model
-    can use yesterday's inputs to predict today's outputs.
+    can use yesterday's inputs to predict today's BP.
     """
     present = [c for c in cols if c in df.columns]
     lagged = df[present].shift(lag)
@@ -183,16 +238,11 @@ def _lag_cols(df: pd.DataFrame, cols: list[str], lag: int = 1) -> pd.DataFrame:
 # CLEANING
 # ─────────────────────────────────────────────────────────────
 
-def _drop_sparse_rows(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
-    """
-    Drop rows where more than MAX_NULL_FRACTION of feature columns are null.
-
-    Output columns are excluded from this calculation — a row is kept as
-    long as it has enough input signal, even if some outputs are missing.
-    """
-    present = [c for c in feature_cols if c in df.columns]
+def _drop_sparse_rows(df: pd.DataFrame, feat_cols: list[str]) -> pd.DataFrame:
+    """Drop rows where more than MAX_NULL_FRACTION of feature columns are null."""
+    present  = [c for c in feat_cols if c in df.columns]
     null_frac = df[present].isna().mean(axis=1)
-    kept = df[null_frac <= MAX_NULL_FRACTION]
+    kept    = df[null_frac <= MAX_NULL_FRACTION]
     dropped = len(df) - len(kept)
     if dropped:
         print(f"  [data_builder] Dropped {dropped} sparse rows (>{MAX_NULL_FRACTION:.0%} nulls)")
@@ -200,50 +250,31 @@ def _drop_sparse_rows(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame
 
 
 def _impute_medians(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Fill remaining nulls with each column's median computed over the full series.
-
-    Median is used rather than mean to reduce the influence of outlier days
-    on the imputed values.
-    """
+    """Fill remaining nulls with each column's median."""
     medians = df.median(numeric_only=True)
     return df.fillna(medians)
 
 
-def _drop_sparse_cols(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
-    """
-    Drop feature columns that are missing in more than SPARSE_COL_THRESHOLD
-    of rows.
-
-    Columns logged infrequently (many trace minerals, rare amino acids) add
-    noise and consume feature slots without contributing signal. Output
-    columns are never dropped.
-    """
-    present = [c for c in feature_cols if c in df.columns]
+def _drop_sparse_cols(df: pd.DataFrame, feat_cols: list[str]) -> pd.DataFrame:
+    """Drop feature columns missing in more than SPARSE_COL_THRESHOLD of rows."""
+    present   = [c for c in feat_cols if c in df.columns]
     null_frac = df[present].isna().mean()
-    to_drop = null_frac[null_frac > SPARSE_COL_THRESHOLD].index.tolist()
+    to_drop   = null_frac[null_frac > SPARSE_COL_THRESHOLD].index.tolist()
     if to_drop:
-        print(f"  [data_builder] Dropped {len(to_drop)} sparse columns (>{SPARSE_COL_THRESHOLD:.0%} nulls): "
+        print(f"  [data_builder] Dropped {len(to_drop)} sparse columns "
+              f"(>{SPARSE_COL_THRESHOLD:.0%} nulls): "
               f"{[c.replace('_lag1','') for c in to_drop]}")
         df = df.drop(columns=to_drop)
     return df
 
 
-def _drop_correlated_cols(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
-    """
-    Drop redundant feature columns where |r| > CORRELATION_THRESHOLD with
-    another feature column.
-
-    Highly correlated features (e.g. amino acids that track protein 1:1)
-    dilute feature importance scores and slow training without adding
-    independent information. When two columns are correlated above the
-    threshold, the one with more non-null values is kept.
-    """
-    present = [c for c in feature_cols if c in df.columns]
+def _drop_correlated_cols(df: pd.DataFrame, feat_cols: list[str]) -> pd.DataFrame:
+    """Drop one of any feature pair where |r| > CORRELATION_THRESHOLD."""
+    present = [c for c in feat_cols if c in df.columns]
     if len(present) < 2:
         return df
 
-    corr = df[present].corr().abs()
+    corr  = df[present].corr().abs()
     upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
 
     to_drop = set()
@@ -254,7 +285,6 @@ def _drop_correlated_cols(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataF
         for partner in partners:
             if partner in to_drop:
                 continue
-            # Keep whichever has more non-null values
             if df[col].notna().sum() >= df[partner].notna().sum():
                 to_drop.add(partner)
             else:
@@ -281,19 +311,21 @@ def build() -> pd.DataFrame:
         1. Load raw biometrics + nutrition (joined on date)
         2. Apply 7-day rolling average to slow-acting micronutrients
         3. Lag all nutrition columns by 1 day
-        4. Lag all activity columns by 1 day
-        5. Drop rows with >50 % missing feature values
-        6. Drop feature columns missing in >70 % of rows
-        7. Drop one of any feature pair with |r| > 0.95
-        8. Impute remaining nulls with column medians
+        4. Lag all sleep columns by 1 day
+        5. Lag all activity columns by 1 day
+        6. Load blood_pressure_logs; merge prior-day AM and PM MAP
+        7. Drop rows with >50 % missing feature values
+        8. Drop feature columns missing in >70 % of rows
+        9. Drop one of any feature pair with |r| > 0.95
+        10. Impute remaining nulls with column medians
 
     Returns
     -------
     pd.DataFrame
-        Date-indexed DataFrame with lagged feature columns and unlagged
-        output columns. Feature columns are suffixed with ``_lag1``.
-        Returns an empty DataFrame if fewer than 2 rows are available
-        after cleaning.
+        Date-indexed DataFrame. Feature columns are suffixed with ``_lag1``.
+        OUTPUT_COLS remain unlagged (for analysis) but are excluded from
+        the feature set used for model training.
+        Returns an empty DataFrame if fewer than 2 rows are available.
     """
     print("[data_builder] Loading raw data...")
     df = _load_raw()
@@ -306,25 +338,35 @@ def build() -> pd.DataFrame:
     # Smooth slow micronutrients before lagging
     df = _apply_rolling(df, SLOW_MICRONUTRIENTS, window=7)
 
-    # Lag nutrition and activity inputs
+    # Lag inputs: nutrition, sleep, activity
     df = _lag_cols(df, NUTRITION_COLS, lag=1)
-    df = _lag_cols(df, ACTIVITY_COLS, lag=1)
+    df = _lag_cols(df, SLEEP_COLS,     lag=1)
+    df = _lag_cols(df, ACTIVITY_COLS,  lag=1)
+
+    # Load prior-day AM and PM blood pressure MAPs
+    bp_sessions = _load_bp_sessions()
+    if not bp_sessions.empty:
+        df = df.join(bp_sessions, how="left")
+        bp_feat_present = [c for c in BP_SESSION_COLS if c in df.columns]
+        if bp_feat_present:
+            df = _lag_cols(df, bp_feat_present, lag=1)
+            print(f"  BP session features merged: {[c + '_lag1' for c in bp_feat_present]}")
 
     # First row is always all-null for lagged columns — drop it
     df = df.iloc[1:]
 
-    # Identify feature columns (everything except outputs)
-    feature_cols = [c for c in df.columns if c not in OUTPUT_COLS]
+    # Identify feature columns (everything except cardiovascular outputs)
+    feat_cols = feature_cols(df)
 
-    df = _drop_sparse_rows(df, feature_cols)
-    df = _drop_sparse_cols(df, feature_cols)
-    feature_cols = [c for c in df.columns if c not in OUTPUT_COLS]
-    df = _drop_correlated_cols(df, feature_cols)
-    feature_cols = [c for c in df.columns if c not in OUTPUT_COLS]
+    df = _drop_sparse_rows(df, feat_cols)
+    df = _drop_sparse_cols(df, feat_cols)
+    feat_cols = feature_cols(df)
+    df = _drop_correlated_cols(df, feat_cols)
+    feat_cols = feature_cols(df)
     df = _impute_medians(df)
 
     print(f"  Clean rows : {len(df)}")
-    print(f"  Features   : {len(feature_cols)}")
+    print(f"  Features   : {len(feat_cols)}")
     print(f"  Outputs    : {len([c for c in OUTPUT_COLS if c in df.columns])}")
 
     return df
@@ -336,7 +378,7 @@ def feature_cols(df: pd.DataFrame) -> list[str]:
 
 
 def output_cols(df: pd.DataFrame) -> list[str]:
-    """Return the output column names present in a built DataFrame."""
+    """Return the cardiovascular output column names present in a built DataFrame."""
     return [c for c in OUTPUT_COLS if c in df.columns]
 
 

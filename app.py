@@ -1059,7 +1059,8 @@ if page == "Recommendations":
         if bp_agg.empty:
             st.caption(
                 "No blood pressure readings yet. Log your first reading above. "
-                "The ML model trains once you have 30+ days of BP data."
+                "The model trains after just 7 PM readings — "
+                "the more you log, the stronger the predictions get."
             )
         else:
             # Summary stats
@@ -1162,7 +1163,7 @@ if page == "Recommendations":
         pipeline_log = get_pipeline_log()
 
         if pipeline_log.empty:
-            st.caption("No pipeline runs recorded yet. The ML pipeline runs every Sunday.")
+            st.caption("No pipeline runs recorded yet. The ML pipeline runs every day at 2 pm.")
         else:
             latest_run = pipeline_log.iloc[0]
             run_dt  = pd.Timestamp(latest_run["run_at"]).tz_localize(None)
@@ -1198,8 +1199,9 @@ if page == "Recommendations":
 
         if model_runs.empty:
             st.caption(
-                "No model runs yet. The ML pipeline needs at least 30 days of BP readings "
-                "to train. Keep logging daily and check back after the next Sunday run."
+                "No model runs yet. Log your PM blood pressure daily — training starts after "
+                "7 readings. Less data means a weaker model; confidence improves steadily "
+                "as readings accumulate. The pipeline runs every day at 2 pm."
             )
         else:
             latest_model = model_runs.iloc[0]
@@ -1352,6 +1354,7 @@ if page == "Recommendations":
                     st.caption("No recommendations generated for this run.")
             else:
                 st.caption(
-                    "No recommendations yet. The ML pipeline runs every Sunday and produces "
-                    "personalised activity/nutrition targets once sufficient BP data exists."
+                    "No recommendations yet. The pipeline runs daily at 2 pm and generates "
+                    "personalised targets once 7+ PM readings exist. "
+                    "More data = stronger recommendations."
                 )
