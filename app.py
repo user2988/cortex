@@ -206,6 +206,11 @@ def get_ml_outcomes():
         return []
 
 
+@st.cache_data(ttl=300)
+def get_weekly_summary():
+    return analysis.load_weekly_summary()
+
+
 @st.cache_data(ttl=60)
 def get_bp_aggregates():
     return analysis.load_bp_daily_aggregates()
@@ -225,7 +230,8 @@ def bust_cache():
     get_data.clear(); get_findings.clear()
     get_experiments.clear(); get_targets.clear()
     get_ml_recommendation.clear(); get_ml_outcomes.clear()
-    get_bp_aggregates.clear(); get_model_runs.clear(); get_pipeline_log.clear()
+    get_weekly_summary.clear(); get_bp_aggregates.clear()
+    get_model_runs.clear(); get_pipeline_log.clear()
 
 # ─────────────────────────────────────────────────────────────
 # HELPERS
@@ -1009,6 +1015,43 @@ if page == "Recommendations":
     # TAB 1 — Blood Pressure
     # ══════════════════════════════════════════════════════════
     with tab_bp:
+
+        # ── Weekly Coach Card ─────────────────────────────────
+        weekly = get_weekly_summary()
+        if weekly:
+            week_label = pd.Timestamp(weekly["week_start"]).strftime("%-d %b")
+            week_end   = pd.Timestamp(weekly["week_start"]) + pd.Timedelta(days=6)
+            week_range = f"{week_label} – {week_end.strftime('%-d %b %Y')}"
+
+            map_delta = weekly.get("map_delta")
+            if map_delta is not None:
+                delta_val  = float(map_delta)
+                delta_str  = f"▼ {abs(delta_val):.1f}" if delta_val < -0.3 else (f"▲ {delta_val:.1f}" if delta_val > 0.3 else "→ stable")
+                delta_color = GREEN if delta_val < -0.3 else (RED if delta_val > 0.3 else GRAY)
+            else:
+                delta_str, delta_color = "—", GRAY
+
+            readings = weekly.get("readings_this", 0)
+            driver   = weekly.get("top_driver_label") or "—"
+
+            with st.container(border=True):
+                st.markdown(
+                    f"<span style='font-size:0.75rem;color:{GRAY};text-transform:uppercase;"
+                    f"letter-spacing:0.06em'>Weekly Summary · {week_range}</span>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(f"_{weekly['narrative']}_")
+
+                wc1, wc2, wc3 = st.columns(3)
+                wc1.markdown(
+                    f"**MAP shift**  \n"
+                    f"<span style='color:{delta_color};font-weight:600'>{delta_str} mmHg</span>",
+                    unsafe_allow_html=True,
+                )
+                wc2.markdown(f"**Readings logged**  \n{readings}/7")
+                wc3.markdown(f"**Top driver**  \n{driver.capitalize()}")
+
+            st.markdown("")
 
         # ── BP Logger ────────────────────────────────────────
         st.markdown("#### Log Blood Pressure")

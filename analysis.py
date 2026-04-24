@@ -752,3 +752,31 @@ def load_model_runs(limit: int = 20) -> tuple[pd.DataFrame, str | None]:
         for col in ["train_r2", "test_r2", "test_mae", "test_rmse"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")
     return df, None
+
+
+def load_weekly_summary() -> dict | None:
+    """
+    Return the most recent weekly_summaries row as a dict, or None if none exist.
+    Keys: id, week_start, map_avg_this, map_avg_last, map_delta,
+          readings_this, top_driver_label, narrative, created_at.
+    """
+    sql = """
+        SELECT id, week_start, map_avg_this, map_avg_last, map_delta,
+               readings_this, top_driver_label, narrative, created_at
+        FROM weekly_summaries
+        ORDER BY week_start DESC
+        LIMIT 1
+    """
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            row = cur.fetchone()
+            if row is None:
+                return None
+            cols = [d[0] for d in cur.description]
+            return dict(zip(cols, row))
+    except Exception:
+        return None
+    finally:
+        conn.close()

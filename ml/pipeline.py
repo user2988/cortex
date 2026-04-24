@@ -33,7 +33,7 @@ from pathlib import Path
 # Ensure the repo root is on the path when called directly
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from ml import data_builder, bp_target, model_trainer, stack_optimiser, outcome_tracker
+from ml import data_builder, bp_target, model_trainer, stack_optimiser, outcome_tracker, weekly_summary
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
@@ -177,6 +177,14 @@ def run() -> bool:  # noqa: C901
 
         if rec is None:
             print("[pipeline] Optimisation produced no recommendations.")
+
+        # ── Stage 6: Weekly coach summary ────────────────────
+        stage = "weekly_summary"
+        print(f"\n[pipeline] Stage 6 — {stage}")
+        try:
+            weekly_summary.generate(df, map_scores)
+        except Exception as _ws_err:
+            print(f"[pipeline] WARNING: weekly_summary failed ({_ws_err}) — continuing.")
 
         # ── Done ─────────────────────────────────────────────
         dur = elapsed()
