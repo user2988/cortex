@@ -212,12 +212,12 @@ def get_bp_aggregates():
 
 
 @st.cache_data(ttl=60)
-def get_model_runs():
+def get_model_runs() -> tuple:
     return analysis.load_model_runs(limit=20)
 
 
 @st.cache_data(ttl=60)
-def get_pipeline_log():
+def get_pipeline_log() -> tuple:
     return analysis.load_pipeline_log(limit=10)
 
 
@@ -1035,8 +1035,25 @@ if page == "Recommendations":
 
             submitted = st.form_submit_button("Save reading", type="primary")
             if submitted:
+                _bp_errors = []
                 if r1_sys is None or r1_dia is None:
-                    st.error("Reading 1 systolic and diastolic are required.")
+                    _bp_errors.append("Reading 1 systolic and diastolic are required.")
+                elif r1_sys <= r1_dia:
+                    _bp_errors.append(
+                        f"Reading 1: systolic ({r1_sys}) must be greater than diastolic ({r1_dia})."
+                    )
+                if r2_sys is not None and r2_dia is not None and r2_sys <= r2_dia:
+                    _bp_errors.append(
+                        f"Reading 2: systolic ({r2_sys}) must be greater than diastolic ({r2_dia})."
+                    )
+                if r2_sys is not None and r2_dia is None:
+                    _bp_errors.append("Reading 2: diastolic is required when systolic is entered.")
+                if r2_dia is not None and r2_sys is None:
+                    _bp_errors.append("Reading 2: systolic is required when diastolic is entered.")
+
+                if _bp_errors:
+                    for _msg in _bp_errors:
+                        st.error(_msg)
                 else:
                     analysis.save_bp_log(
                         date=bp_date,
@@ -1160,9 +1177,11 @@ if page == "Recommendations":
 
         # ── Latest pipeline run ──────────────────────────────
         st.markdown("#### Pipeline Status")
-        pipeline_log = get_pipeline_log()
+        pipeline_log, pipeline_log_err = get_pipeline_log()
 
-        if pipeline_log.empty:
+        if pipeline_log_err:
+            st.warning(f"Could not load pipeline log — {pipeline_log_err}")
+        elif pipeline_log.empty:
             st.caption("No pipeline runs recorded yet. The ML pipeline runs every day at 2 pm.")
         else:
             latest_run = pipeline_log.iloc[0]
@@ -1195,9 +1214,11 @@ if page == "Recommendations":
 
         # ── Latest model metrics ─────────────────────────────
         st.markdown("#### Latest Model Run")
-        model_runs = get_model_runs()
+        model_runs, model_runs_err = get_model_runs()
 
-        if model_runs.empty:
+        if model_runs_err:
+            st.warning(f"Could not load model runs — {model_runs_err}")
+        elif model_runs.empty:
             st.caption(
                 "No model runs yet. Log your PM blood pressure daily — training starts after "
                 "7 readings. Less data means a weaker model; confidence improves steadily "

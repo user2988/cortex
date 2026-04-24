@@ -579,32 +579,8 @@ def decompose(df: pd.DataFrame, var_a: str, period: int = 7) -> dict:
 
 # ─────────────────────────────────────────────────────────────
 # BLOOD PRESSURE
+# Canonical DDL lives in database/schema.sql — no duplicate DDL here.
 # ─────────────────────────────────────────────────────────────
-
-_CREATE_BP_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS blood_pressure_logs (
-    id                  SERIAL PRIMARY KEY,
-    date                DATE        NOT NULL,
-    session             TEXT        NOT NULL CHECK (session IN ('AM', 'PM')),
-    reading_1_systolic  INTEGER,
-    reading_1_diastolic INTEGER,
-    reading_2_systolic  INTEGER,
-    reading_2_diastolic INTEGER,
-    logged_at           TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE (date, session)
-);
-"""
-
-
-def _ensure_bp_table() -> None:
-    conn = psycopg2.connect(DATABASE_URL)
-    try:
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(_CREATE_BP_TABLE_SQL)
-    finally:
-        conn.close()
-
 
 def save_bp_log(
     date,
@@ -615,7 +591,6 @@ def save_bp_log(
     r2_dia: int | None,
 ) -> None:
     """Upsert a BP session log (AM or PM) for the given date."""
-    _ensure_bp_table()
     sql = """
         INSERT INTO blood_pressure_logs
             (date, session, reading_1_systolic, reading_1_diastolic,
@@ -645,7 +620,6 @@ def load_bp_logs(days: int = None) -> pd.DataFrame:
     reading_1_systolic, reading_1_diastolic, reading_2_systolic,
     reading_2_diastolic, logged_at.
     """
-    _ensure_bp_table()
     where = f"WHERE date >= CURRENT_DATE - INTERVAL '{days} days'" if days else ""
     sql = f"""
         SELECT date, session,
@@ -723,10 +697,14 @@ def load_bp_daily_aggregates(days: int = None) -> pd.DataFrame:
 
 # ─────────────────────────────────────────────────────────────
 # ML RUN HISTORY LOADERS
+# Both functions return (DataFrame, error_str | None).
+# error_str is None on success, a short message on DB failure.
+# Callers can distinguish "no rows yet" (empty df, error=None)
+# from "query failed / schema mismatch" (empty df, error=<msg>).
 # ─────────────────────────────────────────────────────────────
 
-def load_pipeline_log(limit: int = 20) -> pd.DataFrame:
-    """Return recent ml_pipeline_log rows, newest first."""
+def load_pipeline_log(limit: int = 20) -> tuple[pd.DataFrame, str | None]:
+    """Return (df, error) for recent ml_pipeline_log rows, newest first."""
     sql = f"""
         SELECT run_at, status, duration_sec, stage, error_message
         FROM ml_pipeline_log
@@ -739,18 +717,18 @@ def load_pipeline_log(limit: int = 20) -> pd.DataFrame:
             cur.execute(sql)
             cols = [d[0] for d in cur.description]
             rows = cur.fetchall()
-    except Exception:
-        return pd.DataFrame()
+    except Exception as exc:
+        return pd.DataFrame(), f"DB error: {exc}"
     finally:
         conn.close()
     df = pd.DataFrame(rows, columns=cols)
     if not df.empty:
         df["run_at"] = pd.to_datetime(df["run_at"])
-    return df
+    return df, None
 
 
-def load_model_runs(limit: int = 20) -> pd.DataFrame:
-    """Return recent ml_model_runs rows, newest first."""
+def load_model_runs(limit: int = 20) -> tuple[pd.DataFrame, str | None]:
+    """Return (df, error) for recent ml_model_runs rows, newest first."""
     sql = f"""
         SELECT id, run_at, confidence_tier, n_rows, n_features,
                train_r2, test_r2, test_mae, test_rmse, top_features, model_path
@@ -764,8 +742,8 @@ def load_model_runs(limit: int = 20) -> pd.DataFrame:
             cur.execute(sql)
             cols = [d[0] for d in cur.description]
             rows = cur.fetchall()
-    except Exception:
-        return pd.DataFrame()
+    except Exception as exc:
+        return pd.DataFrame(), f"DB error: {exc}"
     finally:
         conn.close()
     df = pd.DataFrame(rows, columns=cols)
@@ -773,4 +751,4 @@ def load_model_runs(limit: int = 20) -> pd.DataFrame:
         df["run_at"] = pd.to_datetime(df["run_at"])
         for col in ["train_r2", "test_r2", "test_mae", "test_rmse"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")
-    return df
+    return df, None

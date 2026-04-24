@@ -228,3 +228,108 @@ CREATE INDEX IF NOT EXISTS idx_weight_date      ON weight(date DESC);
 CREATE INDEX IF NOT EXISTS idx_findings_r2      ON findings(r_squared DESC);
 CREATE INDEX IF NOT EXISTS idx_experiments_date ON experiments(start_date DESC);
 CREATE INDEX IF NOT EXISTS idx_bp_logs_date     ON blood_pressure_logs(date DESC);
+
+
+-- ─────────────────────────────────────────────────────────────
+-- ML TABLES  (canonical DDL — ML modules self-create on first
+-- run as a safety net, but this file is the authoritative source)
+-- ─────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS ml_pipeline_log (
+    id            SERIAL PRIMARY KEY,
+    run_at        TIMESTAMPTZ  NOT NULL,
+    status        TEXT         NOT NULL,   -- 'success' | 'failed' | 'skipped'
+    duration_sec  NUMERIC(8, 2),
+    stage         TEXT,
+    error_message TEXT,
+    created_at    TIMESTAMPTZ  DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS ml_model_runs (
+    id              SERIAL PRIMARY KEY,
+    run_at          TIMESTAMPTZ NOT NULL,
+    confidence_tier TEXT        NOT NULL,
+    n_rows          INTEGER     NOT NULL,
+    n_features      INTEGER     NOT NULL,
+    train_r2        NUMERIC(6, 4),
+    test_r2         NUMERIC(6, 4),
+    test_mae        NUMERIC(8, 4),
+    test_rmse       NUMERIC(8, 4),
+    top_features    JSONB,
+    model_path      TEXT,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS ml_recommendations (
+    id               SERIAL PRIMARY KEY,
+    run_at           TIMESTAMPTZ NOT NULL,
+    model_run_id     INTEGER REFERENCES ml_model_runs(id),
+    confidence_tier  TEXT        NOT NULL,
+    n_days_data      INTEGER     NOT NULL,
+    current_map_avg  NUMERIC(6, 2),
+    predicted_map    NUMERIC(6, 2),
+    recommendations  JSONB       NOT NULL,
+    created_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS ml_recommendation_outcomes (
+    id                  SERIAL PRIMARY KEY,
+    recommendation_id   INTEGER REFERENCES ml_recommendations(id),
+    evaluated_at        TIMESTAMPTZ  NOT NULL,
+    map_before_avg      NUMERIC(6, 2),
+    map_after_avg       NUMERIC(6, 2),
+    map_delta           NUMERIC(6, 2),
+    predicted_delta     NUMERIC(6, 2),
+    n_days_before       INTEGER,
+    n_days_after        INTEGER,
+    created_at          TIMESTAMPTZ  DEFAULT NOW()
+);
+
+
+-- ─────────────────────────────────────────────────────────────
+-- Additive migrations — safe to re-run on any existing database
+-- ─────────────────────────────────────────────────────────────
+
+-- MAP-era columns (added when wellness score was replaced by BP target).
+-- Old wellness_* columns are left in place; no data is deleted.
+-- New inserts write only to the map_* columns.
+ALTER TABLE IF EXISTS ml_recommendations
+    ADD COLUMN IF NOT EXISTS current_map_avg NUMERIC(6, 2);
+ALTER TABLE IF EXISTS ml_recommendations
+    ADD COLUMN IF NOT EXISTS predicted_map   NUMERIC(6, 2);
+
+ALTER TABLE IF EXISTS ml_recommendation_outcomes
+    ADD COLUMN IF NOT EXISTS map_before_avg NUMERIC(6, 2);
+ALTER TABLE IF EXISTS ml_recommendation_outcomes
+    ADD COLUMN IF NOT EXISTS map_after_avg  NUMERIC(6, 2);
+ALTER TABLE IF EXISTS ml_recommendation_outcomes
+    ADD COLUMN IF NOT EXISTS map_delta      NUMERIC(6, 2);
+
+-- BP cross-field safety constraints: systolic must exceed diastolic when
+-- both values are present. NOT VALID skips retroactive row checks so
+-- existing data is never blocked; all future inserts/updates are validated.
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'bp_r1_systolic_gt_diastolic'
+    ) THEN
+        ALTER TABLE blood_pressure_logs
+            ADD CONSTRAINT bp_r1_systolic_gt_diastolic
+            CHECK (reading_1_systolic  IS NULL
+                OR reading_1_diastolic IS NULL
+                OR reading_1_systolic  > reading_1_diastolic)
+            NOT VALID;
+    END IF;
+END$$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'bp_r2_systolic_gt_diastolic'
+    ) THEN
+        ALTER TABLE blood_pressure_logs
+            ADD CONSTRAINT bp_r2_systolic_gt_diastolic
+            CHECK (reading_2_systolic  IS NULL
+                OR reading_2_diastolic IS NULL
+                OR reading_2_systolic  > reading_2_diastolic)
+            NOT VALID;
+    END IF;
+END$$;
