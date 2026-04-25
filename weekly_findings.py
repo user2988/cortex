@@ -1,7 +1,7 @@
 """
 Cortex — Weekly Findings Job
 Runs every Sunday via GitHub Actions.
-Scans all priority variable pairs (nutrition→biometrics, biometric→biometric),
+Scans biometric self-pairs (e.g. steps→hrv) with lags 0–3 days,
 filters p < 0.05, ranks by R², writes top results to the findings table.
 Pinned findings are preserved and count toward the 10-row cap.
 """
@@ -16,9 +16,9 @@ from scipy import stats
 DATABASE_URL = os.environ["DATABASE_URL"]
 
 FINDINGS_CAP = 10
-MIN_SAMPLE    = 20   # minimum paired observations to include a result
-MIN_NUT_DAYS  = 30   # require at least this many nutrition days before running
-MAX_LAG       = 3    # lag 0–3 days
+MIN_SAMPLE   = 20   # minimum paired observations to include a result
+MIN_BIO_DAYS = 14   # minimum biometric days before running
+MAX_LAG      = 3    # lag 0–3 days
 
 # Recovery/sleep biometrics — the outcomes we care about most
 PRIORITY_BIOMETRICS = [
@@ -29,28 +29,6 @@ PRIORITY_BIOMETRICS = [
     "spo2_avg_pct",
     "steps", "active_zone_min", "vo2_max",
     "respiratory_rate",
-]
-
-# Nutrition inputs — all tracked cols, excl. alcohol/caffeine/caffeine_last_time
-NUTRITION_COLS = [
-    "calories_in", "protein_g", "carbs_g", "fat_g", "fibre_g",
-    "sugar_g", "sodium_mg", "water_ml",
-    "saturated_fat_g", "monounsaturated_fat_g", "polyunsaturated_fat_g",
-    "trans_fat_g", "cholesterol_mg",
-    "omega3_mg", "omega6_mg", "ala_mg", "epa_mg", "dha_mg",
-    "vitamin_a_mcg", "vitamin_d_iu", "vitamin_e_mg", "vitamin_k_mcg",
-    "vitamin_c_mg", "thiamine_mg", "riboflavin_mg", "niacin_mg",
-    "pantothenic_acid_mg", "vitamin_b6_mg", "biotin_mcg", "folate_mcg",
-    "vitamin_b12_mcg",
-    "calcium_mg", "iron_mg", "magnesium_mg", "phosphorus_mg",
-    "potassium_mg", "zinc_mg",
-    "selenium_mcg", "copper_mg", "manganese_mg", "chromium_mcg",
-    "iodine_mcg", "molybdenum_mcg",
-    "tryptophan_g", "threonine_g", "isoleucine_g", "leucine_g",
-    "lysine_g", "methionine_g", "phenylalanine_g", "valine_g",
-    "histidine_g", "alanine_g", "arginine_g", "aspartic_acid_g",
-    "cystine_g", "glutamic_acid_g", "glycine_g", "proline_g",
-    "serine_g", "tyrosine_g", "hydroxyproline_g",
 ]
 
 # Biometric self-pairs worth scanning (predictor → outcome)
@@ -81,12 +59,10 @@ def load_data() -> pd.DataFrame:
     })
 
     bio_select = ", ".join(f"b.{c}" for c in bio_cols)
-    nut_select = ", ".join(f"n.{c}" for c in NUTRITION_COLS)
 
     sql = f"""
-        SELECT b.date, {bio_select}, {nut_select}
+        SELECT b.date, {bio_select}
         FROM biometrics b
-        LEFT JOIN nutrition n ON b.date = n.date
         ORDER BY b.date
     """
     conn = psycopg2.connect(DATABASE_URL)
@@ -165,13 +141,11 @@ def run():
     print("Loading data...")
     df = load_data()
 
-    nut_days = df[NUTRITION_COLS].dropna(how="all").shape[0]
     print(f"  Biometric rows : {len(df)}")
-    print(f"  Nutrition days : {nut_days}")
 
-    if nut_days < MIN_NUT_DAYS:
-        print(f"  Under {MIN_NUT_DAYS} nutrition days — skipping findings update.")
-        print("  Keep logging — your first insights appear after 30 days.")
+    if len(df) < MIN_BIO_DAYS:
+        print(f"  Under {MIN_BIO_DAYS} biometric days — skipping findings update.")
+        print("  Keep logging — your first insights appear after 14 days.")
         sys.exit(0)
 
     pinned = count_pinned()
@@ -183,31 +157,6 @@ def run():
         sys.exit(0)
 
     candidates = []
-
-    # Nutrition → biometric pairs (with lags 0–MAX_LAG)
-    print("Running nutrition → biometric correlations...")
-    for nut_col in NUTRITION_COLS:
-        if nut_col not in df.columns:
-            continue
-        for bio_col in PRIORITY_BIOMETRICS:
-            if bio_col not in df.columns:
-                continue
-            for lag in range(MAX_LAG + 1):
-                result = pearson_lagged(df[nut_col], df[bio_col], lag)
-                if result is None:
-                    continue
-                r, p, n = result
-                if p >= 0.05:
-                    continue
-                candidates.append({
-                    "variable_a": nut_col,
-                    "variable_b": bio_col,
-                    "r_squared":  r ** 2,
-                    "p_value":    p,
-                    "coefficient": r,
-                    "lag_days":   lag,
-                    "sample_size": n,
-                })
 
     # Biometric self-pairs (with lags 0–MAX_LAG)
     print("Running biometric self-correlations...")

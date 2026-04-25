@@ -1,10 +1,7 @@
 """
 Cortex — Database Migration
-Runs schema.sql against the Neon PostgreSQL instance.
-
-While no production data exists, this drops and recreates all tables on each run
-so schema changes are always applied cleanly. Once real data is accumulating,
-this should be replaced with additive ALTER TABLE migrations.
+Drops and recreates all tables from schema.sql.
+Run via GitHub Actions workflow_dispatch when schema changes need to be applied.
 """
 
 import os
@@ -14,9 +11,12 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 SCHEMA_FILE  = os.path.join(os.path.dirname(__file__), "schema.sql")
 
 DROP_SQL = """
-    DROP TABLE IF EXISTS nutrition CASCADE;
-    DROP TABLE IF EXISTS weight    CASCADE;
-    DROP TABLE IF EXISTS biometrics CASCADE;
+    DROP TABLE IF EXISTS score_recommendations CASCADE;
+    DROP TABLE IF EXISTS daily_scores         CASCADE;
+    DROP TABLE IF EXISTS ml_pipeline_log      CASCADE;
+    DROP TABLE IF EXISTS findings             CASCADE;
+    DROP TABLE IF EXISTS experiments          CASCADE;
+    DROP TABLE IF EXISTS biometrics           CASCADE;
 """
 
 def run():

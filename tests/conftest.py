@@ -7,13 +7,6 @@ from unittest.mock import MagicMock
 
 _STUBS = [
     "prophet",
-    "xgboost",
-    "joblib",
-    "sklearn",
-    "sklearn.model_selection",
-    "sklearn.preprocessing",
-    "sklearn.metrics",
-    "sklearn.ensemble",
     "plotly",
     "plotly.graph_objects",
     "streamlit",
