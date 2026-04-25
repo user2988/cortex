@@ -1,8 +1,10 @@
 name: Cortex Daily Pipeline
 on:
   schedule:
-    - cron: '0 15 * * *'   # 11:00am EDT (UTC-4, Mar–Nov)
-    # - cron: '0 16 * * *'   # 11:00am EST (UTC-5, Nov–Mar)
+    - cron: '0 15 * * *'   # 11:00am EDT — first attempt
+    - cron: '0 18 * * *'   # 02:00pm EDT — catches late wakers / delayed syncs
+    - cron: '0 21 * * *'   # 05:00pm EDT — final catch-up
+    # Winter (EST, UTC-5): shift each cron hour +1
   workflow_dispatch:
 jobs:
   run-Cortex:
