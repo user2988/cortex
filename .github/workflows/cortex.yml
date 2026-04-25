@@ -1,7 +1,8 @@
 name: Cortex Daily Pipeline
 on:
   schedule:
-    - cron: '0 15 * * *'   # 11:00am EDT — first attempt
+    - cron: '0 13 * * *'   # 09:00am EDT — early sync
+    - cron: '0 15 * * *'   # 11:00am EDT — second attempt
     - cron: '0 18 * * *'   # 02:00pm EDT — catches late wakers / delayed syncs
     - cron: '0 21 * * *'   # 05:00pm EDT — final catch-up
     # Winter (EST, UTC-5): shift each cron hour +1
