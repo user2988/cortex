@@ -578,57 +578,24 @@ def decompose(df: pd.DataFrame, var_a: str, period: int = 7) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
-# BLOOD PRESSURE
-# Canonical DDL lives in database/schema.sql — no duplicate DDL here.
+# SCORE LOADERS
 # ─────────────────────────────────────────────────────────────
 
-def save_bp_log(
-    date,
-    session: str,
-    r1_sys: int | None,
-    r1_dia: int | None,
-    r2_sys: int | None,
-    r2_dia: int | None,
-) -> None:
-    """Upsert a BP session log (AM or PM) for the given date."""
-    sql = """
-        INSERT INTO blood_pressure_logs
-            (date, session, reading_1_systolic, reading_1_diastolic,
-             reading_2_systolic, reading_2_diastolic)
-        VALUES (%s, %s, %s, %s, %s, %s)
-        ON CONFLICT (date, session) DO UPDATE SET
-            reading_1_systolic  = EXCLUDED.reading_1_systolic,
-            reading_1_diastolic = EXCLUDED.reading_1_diastolic,
-            reading_2_systolic  = EXCLUDED.reading_2_systolic,
-            reading_2_diastolic = EXCLUDED.reading_2_diastolic,
-            logged_at           = NOW()
+def load_daily_scores(days: int = 90) -> pd.DataFrame:
     """
-    conn = psycopg2.connect(DATABASE_URL)
-    try:
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, (date, session, r1_sys, r1_dia, r2_sys, r2_dia))
-    finally:
-        conn.close()
-
-
-def load_bp_logs(days: int = None) -> pd.DataFrame:
+    Load daily_scores rows, newest first.
+    Returns columns: date, sleep_score, heart_score, and all components.
     """
-    Load raw blood_pressure_logs rows.
-
-    Returns a DataFrame with columns: date, session,
-    reading_1_systolic, reading_1_diastolic, reading_2_systolic,
-    reading_2_diastolic, logged_at.
-    """
-    where = f"WHERE date >= CURRENT_DATE - INTERVAL '{days} days'" if days else ""
     sql = f"""
-        SELECT date, session,
-               reading_1_systolic, reading_1_diastolic,
-               reading_2_systolic, reading_2_diastolic,
-               logged_at
-        FROM blood_pressure_logs
-        {where}
-        ORDER BY date DESC, session
+        SELECT date,
+               sleep_score, heart_score,
+               duration_score, deep_score, rem_score, efficiency_score,
+               hrv_score, rhr_score, spo2_score,
+               sleep_duration_min, deep_pct, rem_pct,
+               hrv_ms, rhr_bpm, spo2_avg_pct
+        FROM daily_scores
+        ORDER BY date DESC
+        LIMIT {int(days)}
     """
     conn = psycopg2.connect(DATABASE_URL)
     try:
@@ -636,147 +603,41 @@ def load_bp_logs(days: int = None) -> pd.DataFrame:
             cur.execute(sql)
             cols = [d[0] for d in cur.description]
             rows = cur.fetchall()
+    except Exception:
+        return pd.DataFrame()
     finally:
         conn.close()
     df = pd.DataFrame(rows, columns=cols)
     if not df.empty:
         df["date"] = pd.to_datetime(df["date"])
+        for col in df.columns:
+            if col != "date":
+                df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
 
 
-def _map_value(sys_val, dia_val):
-    """MAP = (systolic + 2 * diastolic) / 3."""
-    if sys_val is None or dia_val is None:
-        return None
-    try:
-        return (float(sys_val) + 2.0 * float(dia_val)) / 3.0
-    except (TypeError, ValueError):
-        return None
-
-
-def load_bp_daily_aggregates(days: int = None) -> pd.DataFrame:
-    """
-    Compute daily MAP aggregates from blood_pressure_logs.
-
-    For each session the MAP of each reading is computed, then averaged
-    across the two readings. The daily MAP is the mean across available
-    sessions (AM and/or PM).
-
-    Returns a DataFrame with columns: date, map_mmhg, n_sessions,
-    am_map, pm_map.
-    """
-    raw = load_bp_logs(days)
-    if raw.empty:
-        return pd.DataFrame(columns=["date", "map_mmhg", "n_sessions", "am_map", "pm_map"])
-
-    records = []
-    for _, row in raw.iterrows():
-        m1 = _map_value(row["reading_1_systolic"], row["reading_1_diastolic"])
-        m2 = _map_value(row["reading_2_systolic"], row["reading_2_diastolic"])
-        vals = [v for v in [m1, m2] if v is not None]
-        session_map = float(np.mean(vals)) if vals else None
-        records.append({"date": row["date"], "session": row["session"], "session_map": session_map})
-
-    sess_df = pd.DataFrame(records)
-    if sess_df.empty or sess_df["session_map"].isna().all():
-        return pd.DataFrame(columns=["date", "map_mmhg", "n_sessions", "am_map", "pm_map"])
-
-    pivoted = sess_df.pivot_table(index="date", columns="session", values="session_map", aggfunc="first")
-    pivoted.columns.name = None
-
-    result = pd.DataFrame(index=pivoted.index)
-    result["am_map"] = pivoted.get("AM")
-    result["pm_map"] = pivoted.get("PM")
-    avail = result[["am_map", "pm_map"]].notna()
-    result["n_sessions"] = avail.sum(axis=1)
-    result["map_mmhg"] = result[["am_map", "pm_map"]].mean(axis=1, skipna=True)
-    result = result.reset_index().rename(columns={"date": "date"})
-    result["date"] = pd.to_datetime(result["date"])
-    return result.sort_values("date", ascending=False).reset_index(drop=True)
-
-
-# ─────────────────────────────────────────────────────────────
-# ML RUN HISTORY LOADERS
-# Both functions return (DataFrame, error_str | None).
-# error_str is None on success, a short message on DB failure.
-# Callers can distinguish "no rows yet" (empty df, error=None)
-# from "query failed / schema mismatch" (empty df, error=<msg>).
-# ─────────────────────────────────────────────────────────────
-
-def load_pipeline_log(limit: int = 20) -> tuple[pd.DataFrame, str | None]:
-    """Return (df, error) for recent ml_pipeline_log rows, newest first."""
-    sql = f"""
-        SELECT run_at, status, duration_sec, stage, error_message
-        FROM ml_pipeline_log
-        ORDER BY run_at DESC
-        LIMIT {int(limit)}
-    """
-    conn = psycopg2.connect(DATABASE_URL)
-    try:
-        with conn.cursor() as cur:
-            cur.execute(sql)
-            cols = [d[0] for d in cur.description]
-            rows = cur.fetchall()
-    except Exception as exc:
-        return pd.DataFrame(), f"DB error: {exc}"
-    finally:
-        conn.close()
-    df = pd.DataFrame(rows, columns=cols)
-    if not df.empty:
-        df["run_at"] = pd.to_datetime(df["run_at"])
-    return df, None
-
-
-def load_model_runs(limit: int = 20) -> tuple[pd.DataFrame, str | None]:
-    """Return (df, error) for recent ml_model_runs rows, newest first."""
-    sql = f"""
-        SELECT id, run_at, confidence_tier, n_rows, n_features,
-               train_r2, test_r2, test_mae, test_rmse, top_features, model_path
-        FROM ml_model_runs
-        ORDER BY run_at DESC
-        LIMIT {int(limit)}
-    """
-    conn = psycopg2.connect(DATABASE_URL)
-    try:
-        with conn.cursor() as cur:
-            cur.execute(sql)
-            cols = [d[0] for d in cur.description]
-            rows = cur.fetchall()
-    except Exception as exc:
-        return pd.DataFrame(), f"DB error: {exc}"
-    finally:
-        conn.close()
-    df = pd.DataFrame(rows, columns=cols)
-    if not df.empty:
-        df["run_at"] = pd.to_datetime(df["run_at"])
-        for col in ["train_r2", "test_r2", "test_mae", "test_rmse"]:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-    return df, None
-
-
-def load_weekly_summary() -> dict | None:
-    """
-    Return the most recent weekly_summaries row as a dict, or None if none exist.
-    Keys: id, week_start, map_avg_this, map_avg_last, map_delta,
-          readings_this, top_driver_label, narrative, created_at.
-    """
+def load_score_recommendations() -> pd.DataFrame:
+    """Load the latest score_recommendations, ranked by score_delta descending."""
     sql = """
-        SELECT id, week_start, map_avg_this, map_avg_last, map_delta,
-               readings_this, top_driver_label, narrative, created_at
-        FROM weekly_summaries
-        ORDER BY week_start DESC
-        LIMIT 1
+        SELECT target_score, activity_metric, activity_label,
+               optimal_min_fmt, optimal_max_fmt,
+               avg_score_in_range, avg_score_outside, score_delta,
+               correlation, sample_size, recommendation_text
+        FROM score_recommendations
+        ORDER BY score_delta DESC
     """
     conn = psycopg2.connect(DATABASE_URL)
     try:
         with conn.cursor() as cur:
             cur.execute(sql)
-            row = cur.fetchone()
-            if row is None:
-                return None
             cols = [d[0] for d in cur.description]
-            return dict(zip(cols, row))
+            rows = cur.fetchall()
     except Exception:
-        return None
+        return pd.DataFrame()
     finally:
         conn.close()
+    df = pd.DataFrame(rows, columns=cols)
+    if not df.empty:
+        for col in ["avg_score_in_range", "avg_score_outside", "score_delta", "correlation"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df

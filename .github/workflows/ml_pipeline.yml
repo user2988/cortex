@@ -19,7 +19,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install psycopg2-binary pandas numpy scipy xgboost scikit-learn joblib
+        run: pip install psycopg2-binary pandas numpy scipy
 
       - name: Run ML pipeline
         env:

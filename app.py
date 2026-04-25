@@ -137,101 +137,22 @@ def get_experiments():
 def get_targets():
     return analysis.load_targets()
 
-@st.cache_data(ttl=300)
-def get_ml_recommendation():
-    """Return the most recent ML recommendation row, or None."""
-    import psycopg2, json
-    DATABASE_URL = os.environ.get("DATABASE_URL")
-    if not DATABASE_URL:
-        return None
-    try:
-        conn = psycopg2.connect(DATABASE_URL)
-        try:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT r.run_at, r.confidence_tier, r.n_days_data,
-                           r.current_map_avg, r.predicted_map,
-                           r.recommendations,
-                           m.test_r2, m.top_features
-                    FROM ml_recommendations r
-                    LEFT JOIN ml_model_runs m ON m.id = r.model_run_id
-                    ORDER BY r.run_at DESC
-                    LIMIT 1
-                """)
-                row = cur.fetchone()
-        finally:
-            conn.close()
-        if row is None:
-            return None
-        return {
-            "run_at":        row[0],
-            "tier":          row[1],
-            "n_days":        row[2],
-            "current_map":   float(row[3]) if row[3] is not None else None,
-            "predicted_map": float(row[4]) if row[4] is not None else None,
-            "recommendations": row[5] if isinstance(row[5], dict) else json.loads(row[5]),
-            "test_r2":       float(row[6]) if row[6] is not None else None,
-            "top_features":  row[7] if isinstance(row[7], list) else (json.loads(row[7]) if row[7] else []),
-        }
-    except Exception:
-        return None
 
 
 @st.cache_data(ttl=300)
-def get_ml_outcomes():
-    """Return past recommendation outcomes, most recent first."""
-    import psycopg2
-    DATABASE_URL = os.environ.get("DATABASE_URL")
-    if not DATABASE_URL:
-        return []
-    try:
-        conn = psycopg2.connect(DATABASE_URL)
-        try:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT o.evaluated_at, o.map_before_avg,
-                           o.map_after_avg, o.map_delta,
-                           o.predicted_delta, o.n_days_before, o.n_days_after,
-                           r.run_at
-                    FROM ml_recommendation_outcomes o
-                    JOIN ml_recommendations r ON r.id = o.recommendation_id
-                    ORDER BY r.run_at DESC
-                    LIMIT 12
-                """)
-                cols = [d[0] for d in cur.description]
-                return [dict(zip(cols, row)) for row in cur.fetchall()]
-        finally:
-            conn.close()
-    except Exception:
-        return []
+def get_daily_scores():
+    return analysis.load_daily_scores(days=90)
 
 
 @st.cache_data(ttl=300)
-def get_weekly_summary():
-    return analysis.load_weekly_summary()
-
-
-@st.cache_data(ttl=60)
-def get_bp_aggregates():
-    return analysis.load_bp_daily_aggregates()
-
-
-@st.cache_data(ttl=60)
-def get_model_runs() -> tuple:
-    return analysis.load_model_runs(limit=20)
-
-
-@st.cache_data(ttl=60)
-def get_pipeline_log() -> tuple:
-    return analysis.load_pipeline_log(limit=10)
+def get_score_recommendations():
+    return analysis.load_score_recommendations()
 
 
 def bust_cache():
     get_data.clear(); get_findings.clear()
     get_experiments.clear(); get_targets.clear()
-    get_ml_recommendation.clear(); get_ml_outcomes.clear()
-    get_weekly_summary.clear(); get_bp_aggregates.clear()
-    get_model_runs.clear(); get_pipeline_log.clear()
+    get_daily_scores.clear(); get_score_recommendations.clear()
 
 # ─────────────────────────────────────────────────────────────
 # HELPERS
@@ -300,7 +221,7 @@ if "exp_detail_id" not in st.session_state:
 if "saved_view_id" not in st.session_state:
     st.session_state.saved_view_id = None
 
-page = st.sidebar.radio("", ["Insights", "Experiments", "Explorer", "Recommendations"],
+page = st.sidebar.radio("", ["Insights", "Experiments", "Explorer"],
                          key="page", label_visibility="collapsed")
 
 if page != "Experiments":
@@ -315,139 +236,169 @@ if st.sidebar.button("↺ Refresh", use_container_width=True):
 # ─────────────────────────────────────────────────────────────
 
 if page == "Insights":
-    df = get_data(0)
-
-    # ── Header ──────────────────────────────────────────────
     st.title("Insights")
-    n_days = len(df)
-    n_nut  = int(df[analysis.NUTRITION_COLS].dropna(how="all").shape[0])
-    st.caption(f"{n_days} days of biometric data · {n_nut} days of nutrition")
 
-    # ── TOP FINDINGS ────────────────────────────────────────
-    st.markdown("#### TOP FINDINGS")
-    _all_findings = get_findings()
-    findings = _all_findings[~_all_findings["pinned"].astype(bool)] \
-               if not _all_findings.empty else _all_findings
+    scores = get_daily_scores()
+    recs   = get_score_recommendations()
 
-    if findings.empty:
-        if n_nut < 30:
-            st.caption(f"Keep logging — your first insights appear after 30 days ({n_nut}/30 nutrition days logged).")
-        else:
-            st.caption("No findings yet — the weekly job runs every Sunday and surfaces the strongest correlations.")
-    else:
-        for _, row in findings.head(5).iterrows():
-            r2   = float(row["r_squared"])  if row["r_squared"]  is not None else 0
-            coef = float(row["coefficient"]) if row["coefficient"] is not None else 0
-            p    = float(row["p_value"])    if row["p_value"]    is not None else 1
-            lag  = int(row["lag_days"])     if row["lag_days"]              else 0
+    MIN_SCORE_DAYS = 7
 
-            a_lbl = analysis.COL_LABELS.get(row["variable_a"], row["variable_a"])
-            b_lbl = analysis.COL_LABELS.get(row["variable_b"], row["variable_b"]) \
-                    if row["variable_b"] else None
-            name     = f"{a_lbl} → {b_lbl}" if b_lbl else a_lbl
-            lag_txt  = f"{lag}-day lag" if lag else "same day"
-            subtitle = f"{analysis.r2_label(r2)} {'positive' if coef >= 0 else 'negative'} · {lag_txt} · p = {p:.3f}"
+    def score_color(s):
+        if s >= 70: return GREEN
+        if s >= 45: return ORANGE
+        return RED
 
-            with st.container(border=True):
-                c1, c2 = st.columns([8, 2])
-                c1.markdown(f"**{name}**  \n{subtitle}")
-                c2.markdown(
-                    f"<div style='text-align:right;font-size:1.6em;"
-                    f"font-weight:bold;color:{r2_color(r2)}'>{r2:.2f}</div>",
+    def score_delta_str(series: pd.Series):
+        """Yesterday vs day before — direction arrow and delta."""
+        valid = series.dropna()
+        if len(valid) < 2:
+            return "→", GRAY
+        delta = float(valid.iloc[0]) - float(valid.iloc[1])
+        if delta > 2:
+            return f"↑ {delta:.0f}", GREEN
+        if delta < -2:
+            return f"↓ {abs(delta):.0f}", RED
+        return "→ stable", GRAY
+
+    # ══════════════════════════════════════════════════════════
+    # SCORES — two columns
+    # ══════════════════════════════════════════════════════════
+    col_sleep, col_heart = st.columns(2)
+
+    for col, score_col, comp_cols, comp_labels, title, icon in [
+        (
+            col_sleep, "sleep_score",
+            ["duration_score", "deep_score", "rem_score", "efficiency_score"],
+            ["Duration", "Deep %", "REM %", "Efficiency"],
+            "Sleep Score", "🌙",
+        ),
+        (
+            col_heart, "heart_score",
+            ["hrv_score", "rhr_score", "spo2_score"],
+            ["HRV", "Resting HR", "SpO₂"],
+            "Heart Score", "❤️",
+        ),
+    ]:
+        with col:
+            st.markdown(f"#### {icon} {title}")
+
+            if scores.empty or scores[score_col].dropna().empty:
+                st.caption(
+                    f"Score appears after {MIN_SCORE_DAYS} days of biometric data. "
+                    "Sync your Fitbit daily to build your baseline."
+                )
+            else:
+                latest_score = float(scores[score_col].dropna().iloc[0])
+                arrow, acolor = score_delta_str(scores[score_col])
+                s_color = score_color(latest_score)
+
+                st.markdown(
+                    f"<div style='font-size:3.2em;font-weight:700;color:{s_color};line-height:1'>"
+                    f"{latest_score:.0f}"
+                    f"<span style='font-size:0.4em;color:{GRAY}'>/100</span></div>"
+                    f"<div style='color:{acolor};font-size:1em;margin-bottom:0.5em'>{arrow}</div>",
                     unsafe_allow_html=True,
                 )
 
-    st.divider()
+                # Component bar chart
+                comp_data = scores[comp_cols].dropna(how="all").iloc[0]
+                valid_comps = [(lbl, float(comp_data[col]))
+                               for lbl, col in zip(comp_labels, comp_cols)
+                               if pd.notna(comp_data[col])]
 
-    # ── 30-DAY TRENDS ───────────────────────────────────────
-    st.markdown("#### 30-DAY TRENDS")
+                if valid_comps:
+                    fig = go.Figure(go.Bar(
+                        x=[v for _, v in valid_comps],
+                        y=[l for l, _ in valid_comps],
+                        orientation="h",
+                        marker_color=[score_color(v) for _, v in valid_comps],
+                        text=[f"{v:.0f}" for _, v in valid_comps],
+                        textposition="outside",
+                    ))
+                    fig.update_layout(
+                        height=40 * len(valid_comps) + 40,
+                        margin=dict(l=0, r=40, t=10, b=0),
+                        xaxis=dict(range=[0, 100], showticklabels=False),
+                        yaxis=dict(autorange="reversed"),
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
 
-    cutoff = df.index.max() - pd.Timedelta(days=30)
-    last30 = df[df.index >= cutoff]
-    any_row = False
-
-    def trend_row(lbl, series, value_str, direction, dlbl, color):
-        c1, c2, c3, c4 = st.columns([3, 2, 3, 3])
-        c1.markdown(f"**{lbl}**")
-        c2.markdown(value_str)
-        c3.markdown(f"<span style='color:{color}'>{direction} {dlbl}</span>",
-                    unsafe_allow_html=True)
-        with c4:
-            st.plotly_chart(sparkline(series, color), use_container_width=True,
-                            config={"staticPlot": True})
-
-    def ols_direction(series, higher_is_better):
-        t     = np.arange(len(series))
-        model = sm.OLS(series.values, sm.add_constant(t)).fit()
-        slope, p_val = model.params[1], model.pvalues[1]
-        if p_val > 0.05:
-            return "→", "stable", GRAY
-        if (slope > 0) == higher_is_better:
-            return ("↑" if slope > 0 else "↓"), "improving", GREEN
-        return ("↑" if slope > 0 else "↓"), "declining", RED
-
-    # HRV, RHR, Sleep Efficiency — OLS slope
-    for lbl, col, unit, kind, higher_is_better in TREND_METRICS:
-        if kind != "bio":
-            continue
-        series = last30[col].dropna()
-        if len(series) < 5:
-            continue
-        avg = float(series.mean())
-        value_str = f"{avg:.1f}%" if unit == "%" else f"{avg:.0f}{unit}"
-        direction, dlbl, color = ols_direction(series, higher_is_better)
-        trend_row(lbl, series, value_str, direction, dlbl, color)
-        any_row = True
-
-    # Magnesium, Protein — 30d avg vs all-time personal average (needs 14+ nutrition days)
-    for lbl, col, unit, kind, _ in TREND_METRICS:
-        if kind != "nut":
-            continue
-        all_series = df[col].dropna()
-        if len(all_series) < 14:
-            continue
-        baseline = float(all_series.mean())
-        recent   = last30[col].dropna()
-        avg      = float(recent.mean()) if len(recent) else baseline
-        ratio    = avg / baseline if baseline > 0 else 1
-        if ratio >= 0.97:
-            direction, dlbl, color = "↑", "above average", GREEN
-        elif ratio >= 0.85:
-            direction, dlbl, color = "→", "on average", GRAY
-        else:
-            direction, dlbl, color = "↓", "below average", RED
-        trend_row(lbl, recent if len(recent) else all_series.iloc[-30:],
-                  f"{avg:.0f}{unit}", direction, dlbl, color)
-        any_row = True
-
-    # Calorie delta — OLS slope of (calories_in − calories_burned)
-    delta_all = (df["calories_in"] - df["calories_burned"]).dropna()
-    delta_30  = delta_all[delta_all.index >= cutoff]
-    if len(delta_30) >= 14:
-        avg_d = float(delta_30.mean())
-        t     = np.arange(len(delta_30))
-        model = sm.OLS(delta_30.values, sm.add_constant(t)).fit()
-        slope, p_val = model.params[1], model.pvalues[1]
-        if p_val > 0.05:
-            direction, dlbl, color = "→", "stable", GRAY
-        elif slope > 0:
-            direction, dlbl, color = "↑", "increasing surplus", ORANGE
-        else:
-            direction, dlbl, color = "↓", "increasing deficit", ORANGE
-        trend_row("Calorie delta", delta_30, f"{avg_d:+.0f} kcal",
-                  direction, dlbl, color)
-        any_row = True
-
-    if not any_row:
-        st.caption("Trend rows appear after 5+ days of data. "
-                   "Nutrition rows unlock after 14 days of logging.")
+                # 30-day trend
+                trend = scores[["date", score_col]].dropna().sort_values("date")
+                if len(trend) >= 3:
+                    fig2 = go.Figure(go.Scatter(
+                        x=trend["date"], y=trend[score_col],
+                        mode="lines",
+                        line=dict(color=s_color, width=2),
+                        fill="tozeroy",
+                        fillcolor=f"rgba({','.join(str(int(s_color.lstrip('#')[i:i+2], 16)) for i in (0,2,4))},0.08)",
+                        hovertemplate="%{x|%b %-d}: %{y:.0f}<extra></extra>",
+                    ))
+                    fig2.update_layout(
+                        height=140,
+                        margin=dict(l=0, r=0, t=0, b=0),
+                        xaxis=dict(showticklabels=True, showgrid=False),
+                        yaxis=dict(range=[0, 100], showgrid=True, gridcolor="#f0f0f0"),
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                    )
+                    st.plotly_chart(fig2, use_container_width=True)
 
     st.divider()
 
-    # ── EXPERIMENTS CTA ─────────────────────────────────────
-    if st.button("Experiments →", use_container_width=True, type="secondary"):
-        st.session_state.page = "Experiments"
-        st.rerun()
+    # ══════════════════════════════════════════════════════════
+    # RECOMMENDATIONS
+    # ══════════════════════════════════════════════════════════
+    st.markdown("#### Activity Recommendations")
+
+    if recs.empty:
+        if scores.empty or len(scores) < MIN_SCORE_DAYS:
+            st.caption(
+                f"Recommendations appear after {MIN_SCORE_DAYS} days of data. "
+                "Keep syncing daily — the more data, the more specific the insights."
+            )
+        else:
+            st.caption(
+                "No strong activity patterns found yet. "
+                "Recommendations strengthen as your data grows."
+            )
+    else:
+        n_days_data = int(recs["sample_size"].max()) if not recs.empty else 0
+        st.caption(f"Based on {n_days_data} days of your data. Updated daily.")
+
+        for _, rec in recs.head(6).iterrows():
+            target    = str(rec["target_score"])
+            delta     = float(rec["score_delta"])
+            in_range  = float(rec["avg_score_in_range"])
+            out_range = float(rec["avg_score_outside"])
+            icon      = "🌙" if target == "sleep" else "❤️"
+            tag_color = BLUE if target == "sleep" else RED
+
+            with st.container(border=True):
+                rc1, rc2 = st.columns([7, 3])
+                with rc1:
+                    st.markdown(
+                        f"<span style='font-size:0.7rem;font-weight:600;color:{tag_color};"
+                        f"text-transform:uppercase;letter-spacing:0.05em'>"
+                        f"{icon} {target.capitalize()} Score</span>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f"**{rec['activity_label'].capitalize()}:**  "
+                        f"{rec['optimal_min_fmt']} – {rec['optimal_max_fmt']}"
+                    )
+                    st.caption(rec["recommendation_text"])
+                with rc2:
+                    st.markdown(
+                        f"<div style='text-align:center;padding-top:0.4em'>"
+                        f"<div style='font-size:0.75rem;color:{GRAY}'>Score impact</div>"
+                        f"<div style='font-size:1.8em;font-weight:700;color:{GREEN}'>+{delta:.0f}</div>"
+                        f"<div style='font-size:0.7rem;color:{GRAY}'>{out_range:.0f} → {in_range:.0f}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
 
     st.stop()  # end Insights
 
@@ -1002,423 +953,3 @@ if page == "Explorer":
             except Exception as e:
                 st.error(f"Save failed: {e}")
 
-# ─────────────────────────────────────────────────────────────
-# BLOOD PRESSURE & MODEL PROGRESS PAGE
-# ─────────────────────────────────────────────────────────────
-
-if page == "Recommendations":
-    st.title("Blood Pressure & Model Progress")
-
-    tab_bp, tab_model = st.tabs(["Blood Pressure", "Model Progress"])
-
-    # ══════════════════════════════════════════════════════════
-    # TAB 1 — Blood Pressure
-    # ══════════════════════════════════════════════════════════
-    with tab_bp:
-
-        # ── Weekly Coach Card ─────────────────────────────────
-        weekly = get_weekly_summary()
-        if weekly:
-            week_label = pd.Timestamp(weekly["week_start"]).strftime("%-d %b")
-            week_end   = pd.Timestamp(weekly["week_start"]) + pd.Timedelta(days=6)
-            week_range = f"{week_label} – {week_end.strftime('%-d %b %Y')}"
-
-            map_delta = weekly.get("map_delta")
-            if map_delta is not None:
-                delta_val  = float(map_delta)
-                delta_str  = f"▼ {abs(delta_val):.1f}" if delta_val < -0.3 else (f"▲ {delta_val:.1f}" if delta_val > 0.3 else "→ stable")
-                delta_color = GREEN if delta_val < -0.3 else (RED if delta_val > 0.3 else GRAY)
-            else:
-                delta_str, delta_color = "—", GRAY
-
-            readings = weekly.get("readings_this", 0)
-            driver   = weekly.get("top_driver_label") or "—"
-
-            with st.container(border=True):
-                st.markdown(
-                    f"<span style='font-size:0.75rem;color:{GRAY};text-transform:uppercase;"
-                    f"letter-spacing:0.06em'>Weekly Summary · {week_range}</span>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(f"_{weekly['narrative']}_")
-
-                wc1, wc2, wc3 = st.columns(3)
-                wc1.markdown(
-                    f"**MAP shift**  \n"
-                    f"<span style='color:{delta_color};font-weight:600'>{delta_str} mmHg</span>",
-                    unsafe_allow_html=True,
-                )
-                wc2.markdown(f"**Readings logged**  \n{readings}/7")
-                wc3.markdown(f"**Top driver**  \n{driver.capitalize()}")
-
-            st.markdown("")
-
-        # ── BP Logger ────────────────────────────────────────
-        st.markdown("#### Log Blood Pressure")
-        st.caption("Two readings per session. MAP is computed automatically: (systolic + 2 × diastolic) / 3")
-
-        with st.form("bp_log_form", clear_on_submit=True):
-            fc1, fc2, fc3 = st.columns([2, 1, 1])
-            bp_date    = fc1.date_input("Date", value=pd.Timestamp.today().date())
-            bp_session = fc2.radio("Session", ["AM", "PM"], horizontal=True)
-
-            st.markdown("**Reading 1**")
-            r1c1, r1c2 = st.columns(2)
-            r1_sys = r1c1.number_input("Systolic (mmHg)",  min_value=60, max_value=220,
-                                        value=None, placeholder="e.g. 120", key="r1s")
-            r1_dia = r1c2.number_input("Diastolic (mmHg)", min_value=40, max_value=140,
-                                        value=None, placeholder="e.g. 80",  key="r1d")
-
-            st.markdown("**Reading 2**")
-            r2c1, r2c2 = st.columns(2)
-            r2_sys = r2c1.number_input("Systolic (mmHg)",  min_value=60, max_value=220,
-                                        value=None, placeholder="optional", key="r2s")
-            r2_dia = r2c2.number_input("Diastolic (mmHg)", min_value=40, max_value=140,
-                                        value=None, placeholder="optional", key="r2d")
-
-            submitted = st.form_submit_button("Save reading", type="primary")
-            if submitted:
-                _bp_errors = []
-                if r1_sys is None or r1_dia is None:
-                    _bp_errors.append("Reading 1 systolic and diastolic are required.")
-                elif r1_sys <= r1_dia:
-                    _bp_errors.append(
-                        f"Reading 1: systolic ({r1_sys}) must be greater than diastolic ({r1_dia})."
-                    )
-                if r2_sys is not None and r2_dia is not None and r2_sys <= r2_dia:
-                    _bp_errors.append(
-                        f"Reading 2: systolic ({r2_sys}) must be greater than diastolic ({r2_dia})."
-                    )
-                if r2_sys is not None and r2_dia is None:
-                    _bp_errors.append("Reading 2: diastolic is required when systolic is entered.")
-                if r2_dia is not None and r2_sys is None:
-                    _bp_errors.append("Reading 2: systolic is required when diastolic is entered.")
-
-                if _bp_errors:
-                    for _msg in _bp_errors:
-                        st.error(_msg)
-                else:
-                    analysis.save_bp_log(
-                        date=bp_date,
-                        session=bp_session,
-                        r1_sys=int(r1_sys),
-                        r1_dia=int(r1_dia),
-                        r2_sys=int(r2_sys) if r2_sys is not None else None,
-                        r2_dia=int(r2_dia) if r2_dia is not None else None,
-                    )
-                    get_bp_aggregates.clear()
-                    st.success(f"{bp_session} reading saved for {bp_date}.")
-
-        st.divider()
-
-        # ── BP Trend ─────────────────────────────────────────
-        st.markdown("#### Daily MAP Trend")
-
-        bp_agg = get_bp_aggregates()
-
-        if bp_agg.empty:
-            st.caption(
-                "No blood pressure readings yet. Log your first reading above. "
-                "The model trains after just 7 PM readings — "
-                "the more you log, the stronger the predictions get."
-            )
-        else:
-            # Summary stats
-            recent = bp_agg.head(30)
-            avg_map  = float(recent["map_mmhg"].mean())
-            min_map  = float(recent["map_mmhg"].min())
-            max_map  = float(recent["map_mmhg"].max())
-
-            ms1, ms2, ms3 = st.columns(3)
-            ms1.metric("30d Avg MAP",  f"{avg_map:.1f} mmHg")
-            ms2.metric("30d Min MAP",  f"{min_map:.1f} mmHg")
-            ms3.metric("30d Max MAP",  f"{max_map:.1f} mmHg")
-
-            # MAP chart
-            plot_df = bp_agg.sort_values("date")
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=plot_df["date"], y=plot_df["map_mmhg"],
-                mode="lines+markers", name="Daily MAP",
-                line=dict(color=BLUE, width=2), marker=dict(size=5),
-                hovertemplate="%{x|%Y-%m-%d}<br>MAP: %{y:.1f} mmHg<extra></extra>",
-            ))
-            # Reference lines
-            fig.add_hline(y=93.0, line_dash="dot", line_color=ORANGE,
-                          annotation_text="Stage 1 threshold (93 mmHg)", annotation_position="top left")
-            fig.add_hline(y=106.0, line_dash="dot", line_color=RED,
-                          annotation_text="Stage 2 threshold (106 mmHg)", annotation_position="top left")
-            # AM/PM traces if both present
-            if "am_map" in plot_df.columns and plot_df["am_map"].notna().any():
-                fig.add_trace(go.Scatter(
-                    x=plot_df["date"], y=plot_df["am_map"],
-                    mode="markers", name="AM",
-                    marker=dict(color=GREEN, size=6, symbol="circle-open"),
-                    hovertemplate="%{x|%Y-%m-%d}<br>AM MAP: %{y:.1f}<extra></extra>",
-                ))
-            if "pm_map" in plot_df.columns and plot_df["pm_map"].notna().any():
-                fig.add_trace(go.Scatter(
-                    x=plot_df["date"], y=plot_df["pm_map"],
-                    mode="markers", name="PM",
-                    marker=dict(color=ORANGE, size=6, symbol="diamond-open"),
-                    hovertemplate="%{x|%Y-%m-%d}<br>PM MAP: %{y:.1f}<extra></extra>",
-                ))
-            fig.update_layout(
-                xaxis_title="Date", yaxis_title="MAP (mmHg)",
-                height=420, margin=dict(t=20),
-                legend=dict(orientation="h", y=1.08),
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-            st.divider()
-
-            # ── Recent readings table ────────────────────────
-            st.markdown("#### Recent Readings")
-            display = bp_agg[["date", "am_map", "pm_map", "map_mmhg", "n_sessions"]].copy()
-            display["date"] = display["date"].dt.strftime("%Y-%m-%d")
-            display.columns = ["Date", "AM MAP", "PM MAP", "Daily MAP", "Sessions"]
-            for col in ["AM MAP", "PM MAP", "Daily MAP"]:
-                display[col] = display[col].map(lambda v: f"{v:.1f}" if pd.notna(v) else "—")
-            st.dataframe(display.head(30), use_container_width=True, hide_index=True)
-
-            # ── Recommendation outcomes ──────────────────────
-            outcomes = get_ml_outcomes()
-            if outcomes:
-                st.divider()
-                st.markdown("#### Outcome History")
-                st.caption(
-                    "7-day MAP average before vs. after each weekly model recommendation. "
-                    "Negative delta = improvement (lower pressure). "
-                    "Reflects what happened — not whether you followed the protocol."
-                )
-                for o in outcomes:
-                    rec_date   = pd.Timestamp(o["run_at"]).strftime("%-d %b %Y")
-                    before     = o.get("map_before_avg")
-                    after      = o.get("map_after_avg")
-                    delta      = o.get("map_delta")
-                    pred_delta = o.get("predicted_delta")
-
-                    if before is None or after is None:
-                        continue
-
-                    # For MAP: negative delta = improved (lower BP)
-                    delta_color = "inverse" if float(delta) < 0 else "normal"
-                    with st.container(border=True):
-                        c1, c2, c3, c4 = st.columns(4)
-                        c1.markdown(f"**Week of {rec_date}**")
-                        c2.metric("Before", f"{float(before):.1f} mmHg")
-                        c3.metric("After",  f"{float(after):.1f} mmHg",
-                                  delta=f"{float(delta):+.1f}", delta_color=delta_color)
-                        if pred_delta is not None:
-                            c4.metric("Predicted drop", f"{float(pred_delta):+.1f}",
-                                      delta_color="off")
-
-    # ══════════════════════════════════════════════════════════
-    # TAB 2 — Model Progress
-    # ══════════════════════════════════════════════════════════
-    with tab_model:
-
-        # ── Latest pipeline run ──────────────────────────────
-        st.markdown("#### Pipeline Status")
-        pipeline_log, pipeline_log_err = get_pipeline_log()
-
-        if pipeline_log_err:
-            st.warning(f"Could not load pipeline log — {pipeline_log_err}")
-        elif pipeline_log.empty:
-            st.caption("No pipeline runs recorded yet. The ML pipeline runs every day at 2 pm.")
-        else:
-            latest_run = pipeline_log.iloc[0]
-            run_dt  = pd.Timestamp(latest_run["run_at"]).tz_localize(None)
-            run_str = run_dt.strftime("%-d %b %Y, %H:%M")
-            status  = latest_run["status"]
-            dur     = latest_run["duration_sec"]
-            status_color = GREEN if status == "success" else (ORANGE if status == "skipped" else RED)
-
-            pc1, pc2, pc3 = st.columns(3)
-            pc1.markdown(f"**Last run**  \n{run_str}")
-            pc2.markdown(
-                f"**Status**  \n"
-                f"<span style='color:{status_color};font-weight:600'>{status.capitalize()}</span>",
-                unsafe_allow_html=True,
-            )
-            pc3.markdown(f"**Duration**  \n{f'{float(dur):.1f}s' if dur else '—'}")
-
-            if latest_run["error_message"]:
-                st.error(f"Error: {latest_run['error_message']}")
-
-            # Pipeline log table
-            with st.expander("Full pipeline log"):
-                log_display = pipeline_log[["run_at", "status", "duration_sec", "stage", "error_message"]].copy()
-                log_display["run_at"] = log_display["run_at"].dt.strftime("%Y-%m-%d %H:%M")
-                log_display.columns = ["Run At", "Status", "Duration (s)", "Stage", "Error"]
-                st.dataframe(log_display, use_container_width=True, hide_index=True)
-
-        st.divider()
-
-        # ── Latest model metrics ─────────────────────────────
-        st.markdown("#### Latest Model Run")
-        model_runs, model_runs_err = get_model_runs()
-
-        if model_runs_err:
-            st.warning(f"Could not load model runs — {model_runs_err}")
-        elif model_runs.empty:
-            st.caption(
-                "No model runs yet. Log your PM blood pressure daily — training starts after "
-                "7 readings. Less data means a weaker model; confidence improves steadily "
-                "as readings accumulate. The pipeline runs every day at 2 pm."
-            )
-        else:
-            latest_model = model_runs.iloc[0]
-            run_dt  = pd.Timestamp(latest_model["run_at"]).tz_localize(None)
-            run_str = run_dt.strftime("%-d %b %Y")
-            tier    = str(latest_model["confidence_tier"])
-            tier_color = {"high": GREEN, "moderate": ORANGE, "low": RED}.get(tier, GRAY)
-
-            mc1, mc2, mc3, mc4 = st.columns(4)
-            mc1.metric("Model Date", run_str)
-            mc2.markdown(
-                f"**Confidence**  \n"
-                f"<span style='color:{tier_color};font-weight:600'>{tier.capitalize()}</span>",
-                unsafe_allow_html=True,
-            )
-            mc3.metric("Training rows", int(latest_model["n_rows"]))
-            mc4.metric("Features", int(latest_model["n_features"]))
-
-            st.markdown("")
-            sm1, sm2, sm3, sm4 = st.columns(4)
-            sm1.metric("Train R²",  f"{float(latest_model['train_r2']):.3f}"  if pd.notna(latest_model["train_r2"])  else "—")
-            sm2.metric("Test R²",   f"{float(latest_model['test_r2']):.3f}"   if pd.notna(latest_model["test_r2"])   else "—")
-            sm3.metric("Test MAE",  f"{float(latest_model['test_mae']):.2f}"  if pd.notna(latest_model["test_mae"])  else "—")
-            sm4.metric("Test RMSE", f"{float(latest_model['test_rmse']):.2f}" if pd.notna(latest_model["test_rmse"]) else "—")
-
-            st.divider()
-
-            # ── R² trend across runs ─────────────────────────
-            if len(model_runs) > 1:
-                st.markdown("#### Model Performance Trend")
-                st.caption("Test R² across recent pipeline runs — higher indicates better predictive fit.")
-                trend_df = model_runs[model_runs["test_r2"].notna()].sort_values("run_at")
-                if not trend_df.empty:
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatter(
-                        x=trend_df["run_at"], y=trend_df["test_r2"],
-                        mode="lines+markers+text",
-                        text=[f"{v:.3f}" for v in trend_df["test_r2"]],
-                        textposition="top center",
-                        line=dict(color=BLUE, width=2), marker=dict(size=8),
-                        hovertemplate="%{x|%Y-%m-%d}<br>Test R²: %{y:.4f}<extra></extra>",
-                    ))
-                    fig.update_layout(
-                        xaxis_title="Run date", yaxis_title="Test R²",
-                        yaxis=dict(range=[0, 1]),
-                        height=320, margin=dict(t=20),
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                st.divider()
-
-            # ── Top features ────────────────────────────────
-            st.markdown("#### Top Features")
-            st.caption("Features the model weighted most heavily for predicting MAP — ranked by importance.")
-
-            import json as _json
-            raw_feats = latest_model["top_features"]
-            top_features = raw_feats if isinstance(raw_feats, list) else (_json.loads(raw_feats) if raw_feats else [])
-
-            if top_features:
-                feat_names = [
-                    analysis.COL_LABELS.get(
-                        f["feature"].replace("_lag1", ""), f["feature"].replace("_lag1", "")
-                    ) for f in top_features[:10]
-                ]
-                feat_imps = [f["importance"] for f in top_features[:10]]
-                max_imp   = max(feat_imps) if feat_imps else 1
-
-                fig = go.Figure(go.Bar(
-                    x=feat_imps,
-                    y=feat_names,
-                    orientation="h",
-                    marker_color=[BLUE if v > max_imp * 0.5 else GRAY for v in feat_imps],
-                    hovertemplate="%{y}: %{x:.4f}<extra></extra>",
-                ))
-                fig.update_layout(
-                    height=40 * len(feat_names) + 60,
-                    margin=dict(l=0, r=20, t=20, b=0),
-                    xaxis_title="Importance",
-                    yaxis=dict(autorange="reversed"),
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.caption("Feature importances not available for this run.")
-
-            st.divider()
-
-            # ── Recommendations summary ──────────────────────
-            rec = get_ml_recommendation()
-            if rec:
-                st.markdown("#### Latest Recommendations")
-                run_dt  = pd.Timestamp(rec["run_at"]).tz_localize(None) if rec["run_at"] else None
-                run_str = run_dt.strftime("%-d %b %Y") if run_dt else "unknown"
-                st.caption(f"Generated {run_str}  ·  {rec['n_days']} days of training data")
-
-                rm1, rm2 = st.columns(2)
-                if rec["current_map"] is not None:
-                    rm1.metric("Current MAP (30d avg)", f"{rec['current_map']:.1f} mmHg")
-                if rec["predicted_map"] is not None and rec["current_map"] is not None:
-                    drop = rec["current_map"] - rec["predicted_map"]
-                    rm2.metric("Predicted MAP", f"{rec['predicted_map']:.1f} mmHg",
-                               delta=f"{drop:+.1f} vs current",
-                               delta_color="inverse")
-
-                activity  = rec["recommendations"].get("activity",  [])
-                nutrition = rec["recommendations"].get("nutrition", [])
-
-                def _rec_card(r):
-                    label     = analysis.COL_LABELS.get(r["metric"], r["metric"])
-                    delta_str = f"{r['change_pct']:+.0f}%"
-                    with st.container(border=True):
-                        c1, c2, c3 = st.columns([3, 2, 2])
-                        c1.markdown(f"**{label}**")
-                        c2.metric("Current avg", f"{r['current_avg']:,.1f}")
-                        c3.metric("Target", f"{r['recommended']:,.1f}", delta=delta_str,
-                                  delta_color="normal" if r["direction"] == "increase" else
-                                              "inverse" if r["direction"] == "decrease" else "off")
-
-                def _rec_section(recs, title, caption_text):
-                    if not recs:
-                        return
-                    st.markdown(f"**{title}**")
-                    st.caption(caption_text)
-                    increase = [r for r in recs if r["direction"] == "increase"]
-                    decrease = [r for r in recs if r["direction"] == "decrease"]
-                    maintain = [r for r in recs if r["direction"] == "maintain"]
-                    if increase:
-                        st.markdown("*Increase*")
-                        for r in increase: _rec_card(r)
-                    if decrease:
-                        st.markdown("*Decrease*")
-                        for r in decrease: _rec_card(r)
-                    if maintain:
-                        with st.expander("Maintain (no change needed)"):
-                            for r in maintain:
-                                lbl = analysis.COL_LABELS.get(r["metric"], r["metric"])
-                                st.caption(f"{lbl} — currently {r['current_avg']:,.1f}, on target")
-
-                if activity or nutrition:
-                    _rec_section(
-                        activity, "Activity Targets",
-                        "Capped at 40 % above your 30-day average."
-                    )
-                    if activity and nutrition:
-                        st.markdown("")
-                    _rec_section(
-                        nutrition, "Nutrition Targets",
-                        "Capped at 50 % above your 30-day average and within safe upper limits."
-                    )
-                else:
-                    st.caption("No recommendations generated for this run.")
-            else:
-                st.caption(
-                    "No recommendations yet. The pipeline runs daily at 2 pm and generates "
-                    "personalised targets once 7+ PM readings exist. "
-                    "More data = stronger recommendations."
-                )
