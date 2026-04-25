@@ -137,6 +137,33 @@ COL_LABELS = {
 
 
 # ─────────────────────────────────────────────────────────────
+# SCHEMA BOOTSTRAP
+# ─────────────────────────────────────────────────────────────
+
+_SCHEMA_FILE = os.path.join(os.path.dirname(__file__), "database", "schema.sql")
+_schema_applied = False
+
+def ensure_schema() -> None:
+    """Run schema.sql against the database (CREATE IF NOT EXISTS — safe to repeat)."""
+    global _schema_applied
+    if _schema_applied:
+        return
+    try:
+        with open(_SCHEMA_FILE) as f:
+            schema_sql = f.read()
+        conn = psycopg2.connect(DATABASE_URL)
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(schema_sql)
+        finally:
+            conn.close()
+        _schema_applied = True
+    except Exception:
+        pass  # non-fatal: individual queries will surface real errors
+
+
+# ─────────────────────────────────────────────────────────────
 # DATA LOADING
 # ─────────────────────────────────────────────────────────────
 
@@ -146,6 +173,7 @@ def load_data(days: int = None) -> pd.DataFrame:
     days=None returns all available data.
     Excludes device-failure rows (sleep_duration_min == 0).
     """
+    ensure_schema()
     bio = ", ".join(f"b.{c}" for c in BIOMETRIC_COLS)
     nut = ", ".join(f"n.{c}" for c in NUTRITION_COLS)
     where = f"WHERE b.date >= CURRENT_DATE - INTERVAL '{days} days'" if days else ""
@@ -181,6 +209,7 @@ def load_data(days: int = None) -> pd.DataFrame:
 
 def load_targets() -> dict:
     """Returns {variable: target_value} for all user-defined targets."""
+    ensure_schema()
     conn = psycopg2.connect(DATABASE_URL)
     try:
         with conn.cursor() as cur:

@@ -10,14 +10,14 @@ import psycopg2
 DATABASE_URL = os.environ["DATABASE_URL"]
 
 # Order matters — drop dependents before parents
+# NOTE: nutrition, targets, findings, experiments, biometrics, daily_scores,
+# score_recommendations are still actively used by the app — do NOT add them here.
 DROP_TABLES = [
     "ml_recommendation_outcomes",  # references ml_recommendations
     "ml_recommendations",          # references ml_model_runs
     "ml_model_runs",
-    "nutrition",                   # references biometrics
     "weight",
     "blood_pressure_logs",
-    "targets",
     "weekly_summaries",
 ]
 
