@@ -14,10 +14,6 @@ DROP_TABLES = [
     "ml_recommendation_outcomes",  # references ml_recommendations
     "ml_recommendations",          # references ml_model_runs
     "ml_model_runs",
-    "nutrition",                   # references biometrics
-    "weight",
-    "blood_pressure_logs",
-    "targets",
     "weekly_summaries",
 ]
 

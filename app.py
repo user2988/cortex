@@ -11,6 +11,7 @@ import statsmodels.api as sm
 import analysis
 
 st.set_page_config(page_title="Cortex", layout="wide", page_icon="📊")
+analysis.ensure_schema()
 
 # ─────────────────────────────────────────────────────────────
 # CONSTANTS
