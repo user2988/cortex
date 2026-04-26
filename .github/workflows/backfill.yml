@@ -1,32 +1,36 @@
-name: Cortex Daily Pipeline
+name: Fitbit Backfill (14 days)
+
 on:
   schedule:
-    - cron: '0 13 * * *'   # 09:00am EDT — early sync
-    - cron: '0 15 * * *'   # 11:00am EDT — second attempt
-    - cron: '0 18 * * *'   # 02:00pm EDT — catches late wakers / delayed syncs
-    - cron: '0 21 * * *'   # 05:00pm EDT — final catch-up
-    # Winter (EST, UTC-5): shift each cron hour +1
+    - cron: '0 3 * * *'   # 11:00pm EDT (UTC-4, Mar–Nov)
+    # - cron: '0 4 * * *' # 11:00pm EST (UTC-5, Nov–Mar)
   workflow_dispatch:
+
 jobs:
-  run-Cortex:
+  backfill:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
       - name: Install dependencies
         run: pip install requests psycopg2-binary
+
       - name: Restore Fitbit tokens
         run: echo '${{ secrets.FITBIT_TOKENS }}' > fitbit_tokens.json
-      - name: Run Cortex pipeline
+
+      - name: Run backfill
         env:
           FITBIT_CLIENT_ID:     ${{ secrets.FITBIT_CLIENT_ID }}
           FITBIT_CLIENT_SECRET: ${{ secrets.FITBIT_CLIENT_SECRET }}
           DATABASE_URL:         ${{ secrets.DATABASE_URL }}
-        run: python cortex.py
+        run: python backfill.py
+
       - name: Save updated Fitbit tokens
         if: always()
         env:

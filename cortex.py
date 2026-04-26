@@ -14,8 +14,6 @@ import webbrowser
 import requests
 import psycopg2
 
-from cronometer import run_nutrition_pipeline
-
 from datetime import date, datetime, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, urlencode
@@ -392,10 +390,6 @@ def run_pipeline():
     }
 
     store_biometrics(record)
-
-    print(f"Syncing nutrition for {yesterday_str}...")
-    run_nutrition_pipeline(yesterday_str)
-
     print("DONE.")
 
 
