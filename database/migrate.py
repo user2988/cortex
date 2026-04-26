@@ -1,10 +1,7 @@
 """
 Cortex — Database Migration
-Runs schema.sql against the Neon PostgreSQL instance.
-
-While no production data exists, this drops and recreates all tables on each run
-so schema changes are always applied cleanly. Once real data is accumulating,
-this should be replaced with additive ALTER TABLE migrations.
+Drops and recreates biometrics from schema.sql.
+Use alter.py for additive changes that preserve existing data.
 """
 
 import os
