@@ -204,6 +204,445 @@ if st.sidebar.button("↺ Refresh", use_container_width=True):
     st.rerun()
 
 # ─────────────────────────────────────────────────────────────
+# DASHBOARD PAGE
+# ─────────────────────────────────────────────────────────────
+
+if page == "Dashboard":
+
+    # ── CSS ─────────────────────────────────────────────────
+    st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;600&family=Inter:wght@400;500;600&display=swap');
+    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+    #MainMenu, footer, header { visibility: hidden; }
+    [data-testid="stAppViewContainer"] { background: #0D1117; }
+    [data-testid="stSidebar"] { background: #161B22 !important; border-right: 1px solid #21262D; }
+    .block-container { padding-top: 1.4rem; padding-bottom: 2rem; }
+    .dash-kpi-card {
+        background: #161B22; border: 1px solid #21262D; border-radius: 4px;
+        padding: 12px 10px 10px; text-align: center; min-height: 82px;
+    }
+    .dash-kpi-label {
+        font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 600;
+        letter-spacing: 0.10em; text-transform: uppercase; color: #484F58; margin-bottom: 5px;
+    }
+    .dash-kpi-value {
+        font-family: 'IBM Plex Mono', monospace; font-size: 24px;
+        font-weight: 300; color: #E6EDF3; line-height: 1.15;
+    }
+    .dash-kpi-unit { font-size: 10px; color: #484F58; margin-left: 2px; }
+    .dash-kpi-delta { font-family: 'Inter', sans-serif; font-size: 10px; margin-top: 3px; }
+    .dash-section {
+        font-family: 'Inter', sans-serif; font-size: 10px; font-weight: 600;
+        letter-spacing: 0.10em; text-transform: uppercase; color: #484F58;
+        margin: 22px 0 10px; padding-bottom: 8px; border-bottom: 1px solid #21262D;
+    }
+    .dash-chart-label {
+        font-family: 'Inter', sans-serif; font-size: 11px;
+        font-weight: 500; color: #8B949E; margin-bottom: 2px;
+    }
+    .dash-stat-row {
+        font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: #484F58;
+    }
+    .finding-row {
+        background: #161B22; border: 1px solid #21262D; border-radius: 4px;
+        padding: 9px 12px; margin-bottom: 5px;
+        display: flex; justify-content: space-between; align-items: center;
+    }
+    .exp-card {
+        background: #161B22; border: 1px solid #21262D;
+        border-radius: 4px; padding: 10px 12px; margin-bottom: 6px;
+    }
+    .empty-panel {
+        background: #161B22; border: 1px solid #21262D; border-radius: 4px;
+        padding: 24px; text-align: center;
+        color: #484F58; font-size: 12px; font-family: 'Inter', sans-serif;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # ── Data ────────────────────────────────────────────────
+    scores      = get_daily_scores()
+    df_all      = get_data(90)
+    df_30       = (df_all[df_all.index >= df_all.index.max() - pd.Timedelta(days=29)]
+                   if not df_all.empty else pd.DataFrame())
+    findings_df = get_findings()
+    exps_df     = get_experiments()
+
+    # ── Plotly base layout ──────────────────────────────────
+    _CL = dict(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter, sans-serif", size=11, color="#8B949E"),
+        margin=dict(l=6, r=6, t=36, b=6),
+        xaxis=dict(gridcolor="rgba(255,255,255,0.04)", linecolor="#30363D",
+                   tickcolor="#30363D", zeroline=False,
+                   tickfont=dict(size=9, family="IBM Plex Mono, monospace")),
+        yaxis=dict(gridcolor="rgba(255,255,255,0.04)", linecolor="#30363D",
+                   tickcolor="#30363D", zeroline=False,
+                   tickfont=dict(size=9, family="IBM Plex Mono, monospace")),
+        hoverlabel=dict(bgcolor="#1C2230", bordercolor="#30363D",
+                        font=dict(family="Inter", size=11, color="#E6EDF3")),
+    )
+    _CFG = {"displayModeBar": False}
+
+    # ── Helpers ─────────────────────────────────────────────
+    def _latest(col, src=None):
+        src = src if src is not None else df_all
+        if src.empty or col not in src.columns: return None
+        s = src[col].dropna()
+        return float(s.iloc[-1]) if len(s) else None
+
+    def _delta(col, src=None):
+        src = src if src is not None else df_all
+        if src.empty or col not in src.columns: return None, "#484F58"
+        s = src[col].dropna()
+        if len(s) < 2: return None, "#484F58"
+        d = float(s.iloc[-1]) - float(s.iloc[-2])
+        return d, ("#10B981" if d > 0 else "#EF4444" if d < 0 else "#484F58")
+
+    def _score_color(v):
+        if v is None: return "#484F58"
+        return "#10B981" if v >= 70 else "#F59E0B" if v >= 45 else "#EF4444"
+
+    def _fmt(v):
+        if v is None: return "—"
+        if v >= 10000: return f"{v:,.0f}"
+        return f"{v:.0f}" if v >= 10 else f"{v:.1f}"
+
+    def _kpi(label, value, unit="", delta=None, dcolor="#484F58", vcolor=None):
+        vc  = vcolor or "#E6EDF3"
+        dh  = ""
+        if delta is not None:
+            arr = "↑" if delta > 0 else "↓" if delta < 0 else "→"
+            dh  = f"<div class='dash-kpi-delta' style='color:{dcolor}'>{arr} {abs(delta):.1f}</div>"
+        return (f"<div class='dash-kpi-card'>"
+                f"<div class='dash-kpi-label'>{label}</div>"
+                f"<div class='dash-kpi-value' style='color:{vc}'>{_fmt(value)}"
+                f"<span class='dash-kpi-unit'>{unit}</span></div>{dh}</div>")
+
+    def _section(label):
+        st.markdown(f"<div class='dash-section'>{label}</div>", unsafe_allow_html=True)
+
+    def _chart_label(title, s=None):
+        stat = ""
+        if s is not None and len(s.dropna()) > 0:
+            c = s.dropna()
+            stat = (f"&ensp;<span class='dash-stat-row'>"
+                    f"now {c.iloc[-1]:.1f} &middot; "
+                    f"min {c.min():.1f} &middot; "
+                    f"avg {c.mean():.1f} &middot; "
+                    f"max {c.max():.1f}</span>")
+        st.markdown(f"<div class='dash-chart-label'>{title}{stat}</div>",
+                    unsafe_allow_html=True)
+
+    def _trend(series, color, fill, height=190, ref=None, rlabel=""):
+        roll = series.rolling(7, min_periods=3).mean()
+        fig  = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=series.index, y=series.values, mode="markers",
+            marker=dict(color=color, size=3, opacity=0.3), showlegend=False,
+            hovertemplate="%{x|%b %-d}: %{y:.1f}<extra></extra>",
+        ))
+        fig.add_trace(go.Scatter(
+            x=roll.index, y=roll.values, mode="lines",
+            line=dict(color=color, width=2), fill="tozeroy", fillcolor=fill,
+            showlegend=False,
+            hovertemplate="%{x|%b %-d} (7d avg): %{y:.1f}<extra></extra>",
+        ))
+        if ref is not None:
+            fig.add_hline(y=ref, line_dash="dot", line_color="#30363D", line_width=1,
+                          annotation_text=rlabel, annotation_font_color="#484F58",
+                          annotation_font_size=9)
+        fig.update_layout(**_CL, height=height)
+        return fig
+
+    # ── HEADER ──────────────────────────────────────────────
+    today_str = pd.Timestamp.today().strftime("%A, %b %-d, %Y")
+    if not df_all.empty:
+        _hrs = (pd.Timestamp.now() - df_all.index.max()).total_seconds() / 3600
+        _sc  = "#10B981" if _hrs < 6 else "#F59E0B" if _hrs < 24 else "#EF4444"
+        _st  = f"Synced {_hrs:.0f}h ago" if _hrs < 24 else f"Stale — {_hrs/24:.0f}d ago"
+    else:
+        _sc, _st = "#484F58", "No data"
+
+    _hc1, _hc2 = st.columns([5, 2])
+    _hc1.markdown(
+        "<span style='font-family:Inter;font-size:22px;font-weight:600;"
+        "color:#E6EDF3;letter-spacing:-0.02em'>Cortex</span>"
+        f"<span style='font-family:Inter;font-size:13px;color:#484F58;"
+        f"margin-left:12px'>{today_str}</span>",
+        unsafe_allow_html=True,
+    )
+    _hc2.markdown(
+        f"<div style='text-align:right;padding-top:4px'>"
+        f"<span style='font-family:IBM Plex Mono,monospace;font-size:11px;"
+        f"color:{_sc}'>● {_st}</span></div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── KPI STRIP ───────────────────────────────────────────
+    _ss   = float(scores["sleep_score"].dropna().iloc[0]) if not scores.empty and not scores["sleep_score"].dropna().empty else None
+    _hs   = float(scores["heart_score"].dropna().iloc[0]) if not scores.empty and not scores["heart_score"].dropna().empty else None
+    _ssd  = (float(scores["sleep_score"].dropna().iloc[0]) - float(scores["sleep_score"].dropna().iloc[1])) if not scores.empty and len(scores["sleep_score"].dropna()) >= 2 else None
+    _hsd  = (float(scores["heart_score"].dropna().iloc[0]) - float(scores["heart_score"].dropna().iloc[1])) if not scores.empty and len(scores["heart_score"].dropna()) >= 2 else None
+    _hrv_d, _hrv_dc   = _delta("hrv_ms")
+    _rhr_d, _rhr_dc_r = _delta("rhr_bpm")
+    _rhr_dc           = "#EF4444" if (_rhr_d or 0) > 0 else "#10B981" if (_rhr_d or 0) < 0 else "#484F58"
+    _stps_d, _stps_dc = _delta("steps")
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    _ks = st.columns(8)
+    for _kc, _html in zip(_ks, [
+        _kpi("Sleep Score", _ss, "",    _ssd,   _score_color(_ss) if (_ssd or 0) > 0 else "#EF4444" if (_ssd or 0) < 0 else "#484F58", _score_color(_ss)),
+        _kpi("Heart Score", _hs, "",    _hsd,   _score_color(_hs) if (_hsd or 0) > 0 else "#EF4444" if (_hsd or 0) < 0 else "#484F58", _score_color(_hs)),
+        _kpi("HRV RMSSD",   _latest("hrv_ms"),          "ms",   _hrv_d, _hrv_dc),
+        _kpi("Resting HR",  _latest("rhr_bpm"),          "bpm",  _rhr_d, _rhr_dc),
+        _kpi("SpO₂",        _latest("spo2_avg_pct"),     "%"),
+        _kpi("Steps",       _latest("steps"),            "",     _stps_d, _stps_dc),
+        _kpi("Active Min",  _latest("active_zone_min"),  "min"),
+        _kpi("Calories",    _latest("calories_burned"),  "kcal"),
+    ]):
+        _kc.markdown(_html, unsafe_allow_html=True)
+
+    # ── SCORE TRENDS ────────────────────────────────────────
+    _section("Score Trends — 90 days")
+    _sc1, _sc2 = st.columns(2)
+    for _col, _key, _lbl, _clr, _fill in [
+        (_sc1, "sleep_score", "Sleep Score", "#4A90D9", "rgba(74,144,217,0.10)"),
+        (_sc2, "heart_score", "Heart Score", "#2DD4BF", "rgba(45,212,191,0.10)"),
+    ]:
+        with _col:
+            if not scores.empty and not scores[_key].dropna().empty:
+                _tr = scores[["date", _key]].dropna().sort_values("date").set_index("date")[_key]
+                _chart_label(_lbl, _tr)
+                _f = _trend(_tr, _clr, _fill, height=175, ref=70, rlabel="70")
+                _f.update_layout(yaxis=dict(**_CL["yaxis"], range=[0, 100]))
+                st.plotly_chart(_f, use_container_width=True, config=_CFG)
+
+    # ── SLEEP ARCHITECTURE ──────────────────────────────────
+    _section("Sleep Architecture — 30 days")
+    _sa1, _sa2 = st.columns([3, 1])
+
+    _stage_cfg = [
+        ("deep_sleep_min",  "Deep (N3)", "#2DD4BF"),
+        ("rem_sleep_min",   "REM",       "#8B5CF6"),
+        ("light_sleep_min", "Light",     "#4A90D9"),
+        ("awake_min",       "Awake",     "#3D4451"),
+    ]
+    _scols = [c for c, _, _ in _stage_cfg]
+
+    with _sa1:
+        if not df_30.empty and any(c in df_30.columns for c in _scols):
+            _sd = df_30[[c for c in _scols if c in df_30.columns]].dropna(how="all")
+            if not _sd.empty:
+                _chart_label("Sleep Stage Breakdown (min)")
+                _f = go.Figure()
+                for _c, _n, _clr in _stage_cfg:
+                    if _c in _sd.columns:
+                        _f.add_trace(go.Bar(
+                            x=_sd.index, y=_sd[_c], name=_n, marker_color=_clr,
+                            hovertemplate=f"{_n}: %{{y:.0f}} min<extra></extra>",
+                        ))
+                _f.update_layout(**_CL, barmode="stack", height=230, bargap=0.15,
+                                 legend=dict(orientation="h", y=1.2, x=0,
+                                             font=dict(size=10), bgcolor="rgba(0,0,0,0)"))
+                st.plotly_chart(_f, use_container_width=True, config=_CFG)
+
+    with _sa2:
+        if not df_30.empty and any(c in df_30.columns for c in _scols):
+            _avgs = df_30[[c for c in _scols if c in df_30.columns]].mean()
+            if _avgs.sum() > 0:
+                _chart_label("30-Day Avg")
+                _f = go.Figure(go.Pie(
+                    labels=["Deep", "REM", "Light", "Awake"],
+                    values=[_avgs.get(c, 0) for c in _scols],
+                    marker_colors=["#2DD4BF", "#8B5CF6", "#4A90D9", "#3D4451"],
+                    hole=0.65, textinfo="percent",
+                    textfont=dict(size=9, family="IBM Plex Mono"),
+                    hovertemplate="%{label}: %{value:.0f} min<extra></extra>",
+                ))
+                _f.add_annotation(
+                    text=f"{_avgs.sum()/60:.1f}h", x=0.5, y=0.5, showarrow=False,
+                    font=dict(size=15, family="IBM Plex Mono", color="#E6EDF3"),
+                )
+                _f.update_layout(**_CL, height=230, showlegend=False,
+                                 margin=dict(l=6, r=6, t=36, b=6))
+                st.plotly_chart(_f, use_container_width=True, config=_CFG)
+
+    _se1, _se2 = st.columns(2)
+    with _se1:
+        _s = df_all["sleep_efficiency_pct"].dropna() if not df_all.empty and "sleep_efficiency_pct" in df_all.columns else pd.Series(dtype=float)
+        if len(_s) >= 3:
+            _chart_label("Sleep Efficiency (%)", _s)
+            st.plotly_chart(_trend(_s, "#4A90D9", "rgba(74,144,217,0.08)",
+                                   height=180, ref=85, rlabel="85%"),
+                            use_container_width=True, config=_CFG)
+    with _se2:
+        _raw = df_all["sleep_duration_min"].dropna() if not df_all.empty and "sleep_duration_min" in df_all.columns else pd.Series(dtype=float)
+        if len(_raw) >= 3:
+            _sh = _raw / 60
+            _chart_label("Sleep Duration (h)", _sh)
+            _f = go.Figure()
+            _f.add_trace(go.Bar(x=_sh.index, y=_sh.values, marker_color="#8B5CF6",
+                                opacity=0.5, showlegend=False,
+                                hovertemplate="%{x|%b %-d}: %{y:.1f}h<extra></extra>"))
+            _f.add_trace(go.Scatter(x=_sh.index,
+                                    y=_sh.rolling(7, min_periods=3).mean().values,
+                                    mode="lines", line=dict(color="#8B5CF6", width=2),
+                                    showlegend=False))
+            _f.add_hline(y=8, line_dash="dot", line_color="#30363D", line_width=1,
+                         annotation_text="8h", annotation_font_color="#484F58",
+                         annotation_font_size=9)
+            _f.update_layout(**_CL, height=180, bargap=0.2)
+            st.plotly_chart(_f, use_container_width=True, config=_CFG)
+
+    # ── CARDIOVASCULAR ──────────────────────────────────────
+    _section("Cardiovascular — 90 days")
+    _cv1, _cv2 = st.columns(2)
+    _cv3, _cv4 = st.columns(2)
+    for _col, _m, _lbl, _clr, _fill, _ref, _rl in [
+        (_cv1, "hrv_ms",           "HRV RMSSD (ms)",           "#2DD4BF", "rgba(45,212,191,0.08)",  None, ""),
+        (_cv2, "rhr_bpm",          "Resting Heart Rate (bpm)", "#EF4444", "rgba(239,68,68,0.08)",   None, ""),
+        (_cv3, "spo2_avg_pct",     "SpO₂ Average (%)",         "#7EC8A4", "rgba(126,200,164,0.08)", 95,   "95%"),
+        (_cv4, "respiratory_rate", "Respiratory Rate (br/min)","#F59E0B", "rgba(245,158,11,0.08)",  None, ""),
+    ]:
+        with _col:
+            _s = df_all[_m].dropna() if not df_all.empty and _m in df_all.columns else pd.Series(dtype=float)
+            if len(_s) >= 3:
+                _chart_label(_lbl, _s)
+                st.plotly_chart(_trend(_s, _clr, _fill, height=200, ref=_ref, rlabel=_rl),
+                                use_container_width=True, config=_CFG)
+
+    # ── ACTIVITY ────────────────────────────────────────────
+    _section("Activity — 30 days")
+    _act1, _act2 = st.columns([2, 1])
+
+    with _act1:
+        _s = df_30["steps"].dropna() if not df_30.empty and "steps" in df_30.columns else pd.Series(dtype=float)
+        if len(_s) >= 3:
+            _chart_label("Daily Steps", _s)
+            _f = go.Figure()
+            _f.add_trace(go.Bar(x=_s.index, y=_s.values, marker_color="#4A90D9",
+                                opacity=0.5, showlegend=False,
+                                hovertemplate="%{x|%b %-d}: %{y:,.0f}<extra></extra>"))
+            _f.add_trace(go.Scatter(x=_s.index,
+                                    y=_s.rolling(7, min_periods=3).mean().values,
+                                    mode="lines", line=dict(color="#E6EDF3", width=1.5),
+                                    showlegend=False))
+            _f.add_hline(y=10000, line_dash="dot", line_color="#30363D", line_width=1,
+                         annotation_text="10k", annotation_font_color="#484F58",
+                         annotation_font_size=9)
+            _f.update_layout(**_CL, height=200, bargap=0.2)
+            st.plotly_chart(_f, use_container_width=True, config=_CFG)
+
+    with _act2:
+        _zcols = ["time_in_fat_burn_min", "time_in_cardio_min",
+                  "time_in_peak_min", "lightly_active_min"]
+        if not df_30.empty and any(c in df_30.columns for c in _zcols):
+            _zavg = df_30[[c for c in _zcols if c in df_30.columns]].mean()
+            if _zavg.sum() > 0:
+                _chart_label("Avg Activity Zones")
+                _f = go.Figure(go.Pie(
+                    labels=["Fat Burn", "Cardio", "Peak", "Light"],
+                    values=[_zavg.get(c, 0) for c in _zcols],
+                    marker_colors=["#F59E0B", "#EF4444", "#8B5CF6", "#4A90D9"],
+                    hole=0.65, textinfo="percent",
+                    textfont=dict(size=9, family="IBM Plex Mono"),
+                    hovertemplate="%{label}: %{value:.0f} min/day avg<extra></extra>",
+                ))
+                _f.update_layout(**_CL, height=200, showlegend=False,
+                                 margin=dict(l=6, r=6, t=36, b=6))
+                st.plotly_chart(_f, use_container_width=True, config=_CFG)
+
+    _act3, _act4 = st.columns(2)
+    for _col, _m, _lbl, _clr, _fill in [
+        (_act3, "calories_burned", "Calories Burned (kcal)", "#F59E0B", "rgba(245,158,11,0.08)"),
+        (_act4, "distance_km",     "Distance (km)",          "#7EC8A4", "rgba(126,200,164,0.08)"),
+    ]:
+        with _col:
+            _s = df_30[_m].dropna() if not df_30.empty and _m in df_30.columns else pd.Series(dtype=float)
+            if len(_s) >= 3:
+                _chart_label(_lbl, _s)
+                _f = go.Figure()
+                _f.add_trace(go.Bar(x=_s.index, y=_s.values, marker_color=_clr,
+                                    opacity=0.5, showlegend=False,
+                                    hovertemplate=f"%{{x|%b %-d}}: %{{y:.1f}}<extra></extra>"))
+                _f.add_trace(go.Scatter(x=_s.index,
+                                        y=_s.rolling(7, min_periods=3).mean().values,
+                                        mode="lines", line=dict(color=_clr, width=2),
+                                        showlegend=False))
+                _f.update_layout(**_CL, height=180, bargap=0.2)
+                st.plotly_chart(_f, use_container_width=True, config=_CFG)
+
+    # ── INTELLIGENCE ────────────────────────────────────────
+    _section("Intelligence")
+    _int1, _int2 = st.columns([3, 2])
+
+    with _int1:
+        st.markdown("<div class='dash-chart-label'>Top Correlations</div>",
+                    unsafe_allow_html=True)
+        if not findings_df.empty:
+            for _, _r in findings_df.sort_values("r_squared", ascending=False).head(6).iterrows():
+                _a  = analysis.COL_LABELS.get(_r["variable_a"], _r["variable_a"])
+                _b  = analysis.COL_LABELS.get(_r["variable_b"], _r["variable_b"]) if _r["variable_b"] else "—"
+                _r2 = float(_r["r_squared"])
+                _co = float(_r["coefficient"])
+                _lg = int(_r["lag_days"])
+                _r2c = "#2DD4BF" if _r2 >= 0.5 else "#F59E0B" if _r2 >= 0.3 else "#484F58"
+                _dc  = "#10B981" if _co > 0 else "#EF4444"
+                st.markdown(
+                    f"<div class='finding-row'>"
+                    f"<div style='font-family:Inter;font-size:12px;color:#E6EDF3'>{_a}"
+                    f"<span style='color:#484F58'> → </span>{_b}"
+                    f"<span style='font-family:IBM Plex Mono,monospace;font-size:9px;"
+                    f"color:#484F58;margin-left:8px'>lag +{_lg}d</span></div>"
+                    f"<div style='display:flex;align-items:center;gap:8px;flex-shrink:0'>"
+                    f"<span style='font-family:IBM Plex Mono,monospace;font-size:9px;"
+                    f"color:{_dc}'>{'↑' if _co > 0 else '↓'}</span>"
+                    f"<span style='font-family:IBM Plex Mono,monospace;font-size:14px;"
+                    f"font-weight:600;color:{_r2c}'>R²{_r2:.2f}</span>"
+                    f"</div></div>",
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.markdown("<div class='empty-panel'>Patterns computed weekly —"
+                        " check back after Sunday's analysis run.</div>",
+                        unsafe_allow_html=True)
+
+    with _int2:
+        st.markdown("<div class='dash-chart-label'>Active Experiments</div>",
+                    unsafe_allow_html=True)
+        _ae = exps_df[~exps_df["is_complete"]] if not exps_df.empty else pd.DataFrame()
+        if not _ae.empty:
+            for _, _exp in _ae.head(4).iterrows():
+                _es  = pd.Timestamp(_exp["start_date"])
+                _ee  = pd.Timestamp(_exp["end_date"])
+                _el  = max(0, (min(pd.Timestamp.today().normalize(), _ee) - _es).days)
+                _dur = int(_exp["duration_days"])
+                _pct = min(_el / _dur, 1.0) if _dur > 0 else 0
+                _bar = int(_pct * 18)
+                _a   = analysis.COL_LABELS.get(_exp["variable_a"], _exp["variable_a"])
+                _b   = analysis.COL_LABELS.get(_exp["variable_b"], _exp["variable_b"])
+                st.markdown(
+                    f"<div class='exp-card'>"
+                    f"<div style='font-family:Inter;font-size:12px;color:#E6EDF3;"
+                    f"margin-bottom:3px'>{_exp['name']}</div>"
+                    f"<div style='font-family:IBM Plex Mono,monospace;font-size:9px;"
+                    f"color:#484F58;margin-bottom:6px'>{_a} → {_b}</div>"
+                    f"<div style='font-family:IBM Plex Mono,monospace;font-size:10px;"
+                    f"color:#2DD4BF'>{'█' * _bar}{'░' * (18 - _bar)}</div>"
+                    f"<div style='font-family:IBM Plex Mono,monospace;font-size:9px;"
+                    f"color:#484F58;margin-top:3px'>Day {_el} of {_dur}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.markdown("<div class='empty-panel'>No active experiments.</div>",
+                        unsafe_allow_html=True)
+
+    st.stop()  # end Dashboard
+
+# ─────────────────────────────────────────────────────────────
 # INSIGHTS PAGE
 # ─────────────────────────────────────────────────────────────
 
