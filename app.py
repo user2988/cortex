@@ -193,7 +193,7 @@ if "exp_detail_id" not in st.session_state:
 if "saved_view_id" not in st.session_state:
     st.session_state.saved_view_id = None
 
-page = st.sidebar.radio("", ["Dashboard", "Insights", "Experiments", "Explorer"],
+page = st.sidebar.radio("Navigation", ["Dashboard", "Insights", "Experiments", "Explorer"],
                          key="page", label_visibility="collapsed")
 
 if page != "Experiments":
@@ -452,7 +452,7 @@ if page == "Dashboard":
                 _chart_label(_lbl, _tr)
                 _f = _trend(_tr, _clr, _fill, height=175, ref=70, rlabel="70")
                 _f.update_layout(yaxis=dict(**_CL["yaxis"], range=[0, 100]))
-                st.plotly_chart(_f, use_container_width=True, config=_CFG)
+                st.plotly_chart(_f, width="stretch", config=_CFG)
             else:
                 st.markdown("<div class='empty-panel'>No score history yet.</div>",
                             unsafe_allow_html=True)
@@ -484,7 +484,7 @@ if page == "Dashboard":
                 _f.update_layout(**_CL, barmode="stack", height=230, bargap=0.15,
                                  legend=dict(orientation="h", y=1.2, x=0,
                                              font=dict(size=10), bgcolor="rgba(0,0,0,0)"))
-                st.plotly_chart(_f, use_container_width=True, config=_CFG)
+                st.plotly_chart(_f, width="stretch", config=_CFG)
 
     with _sa2:
         if not df_30.empty and any(c in df_30.columns for c in _scols):
@@ -504,7 +504,7 @@ if page == "Dashboard":
                     font=dict(size=15, family="IBM Plex Mono", color="#E6EDF3"),
                 )
                 _f.update_layout(**_CL, height=230, showlegend=False)
-                st.plotly_chart(_f, use_container_width=True, config=_CFG)
+                st.plotly_chart(_f, width="stretch", config=_CFG)
 
     _se1, _se2 = st.columns(2)
     with _se1:
@@ -513,7 +513,7 @@ if page == "Dashboard":
             _chart_label("Sleep Efficiency (%)", _s)
             st.plotly_chart(_trend(_s, "#4A90D9", "rgba(74,144,217,0.08)",
                                    height=180, ref=85, rlabel="85%"),
-                            use_container_width=True, config=_CFG)
+                            width="stretch", config=_CFG)
     with _se2:
         _raw = _get_series("sleep_duration_min")
         if len(_raw) >= 3:
@@ -531,7 +531,7 @@ if page == "Dashboard":
                          annotation_text="8h", annotation_font_color="#484F58",
                          annotation_font_size=9)
             _f.update_layout(**_CL, height=180, bargap=0.2)
-            st.plotly_chart(_f, use_container_width=True, config=_CFG)
+            st.plotly_chart(_f, width="stretch", config=_CFG)
 
     # ── CARDIOVASCULAR ──────────────────────────────────────
     _section("Cardiovascular — 90 days")
@@ -548,7 +548,7 @@ if page == "Dashboard":
             if len(_s) >= 3:
                 _chart_label(_lbl, _s)
                 st.plotly_chart(_trend(_s, _clr, _fill, height=200, ref=_ref, rlabel=_rl),
-                                use_container_width=True, config=_CFG)
+                                width="stretch", config=_CFG)
             else:
                 st.markdown(f"<div class='empty-panel'>{_lbl}<br>No data yet.</div>",
                             unsafe_allow_html=True)
@@ -573,7 +573,7 @@ if page == "Dashboard":
                          annotation_text="10k", annotation_font_color="#484F58",
                          annotation_font_size=9)
             _f.update_layout(**_CL, height=200, bargap=0.2)
-            st.plotly_chart(_f, use_container_width=True, config=_CFG)
+            st.plotly_chart(_f, width="stretch", config=_CFG)
 
     with _act2:
         _zcols = ["time_in_fat_burn_min", "time_in_cardio_min",
@@ -591,7 +591,7 @@ if page == "Dashboard":
                     hovertemplate="%{label}: %{value:.0f} min/day avg<extra></extra>",
                 ))
                 _f.update_layout(**_CL, height=200, showlegend=False)
-                st.plotly_chart(_f, use_container_width=True, config=_CFG)
+                st.plotly_chart(_f, width="stretch", config=_CFG)
 
     _act3, _act4 = st.columns(2)
     for _col, _m, _lbl, _clr, _fill in [
@@ -611,7 +611,7 @@ if page == "Dashboard":
                                         mode="lines", line=dict(color=_clr, width=2),
                                         showlegend=False))
                 _f.update_layout(**_CL, height=180, bargap=0.2)
-                st.plotly_chart(_f, use_container_width=True, config=_CFG)
+                st.plotly_chart(_f, width="stretch", config=_CFG)
 
     # ── INTELLIGENCE ────────────────────────────────────────
     _section("Intelligence")
@@ -773,7 +773,7 @@ if page == "Insights":
                         plot_bgcolor="rgba(0,0,0,0)",
                         paper_bgcolor="rgba(0,0,0,0)",
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
 
                 # 30-day trend
                 trend = scores[["date", score_col]].dropna().sort_values("date")
@@ -794,7 +794,7 @@ if page == "Insights":
                         plot_bgcolor="rgba(0,0,0,0)",
                         paper_bgcolor="rgba(0,0,0,0)",
                     )
-                    st.plotly_chart(fig2, use_container_width=True)
+                    st.plotly_chart(fig2, width="stretch")
 
     st.divider()
 
@@ -1002,7 +1002,7 @@ if page == "Experiments":
         fig.update_layout(xaxis_title=a_lbl, yaxis_title=b_lbl,
                           height=460, margin=dict(t=20),
                           legend=dict(orientation="h", y=1.06))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
         # Interpretation
         if complete:
@@ -1282,11 +1282,11 @@ if page == "Explorer":
                 stat_bar(_sr.get("r2"), _sr.get("p_value"), _sr.get("coefficient"), _sr.get("n"), _sr.get("label"))
                 if _sv_atype in ("Pearson Correlation", "Spearman Correlation"):
                     st.plotly_chart(scatter_ols(_sr["series_a"], _sr["series_b"],
-                        _sr["coefficient"], _sr["intercept"], _sv_al, _sv_bl), use_container_width=True)
+                        _sr["coefficient"], _sr["intercept"], _sv_al, _sv_bl), width="stretch")
                 elif _sv_atype == "Lagged Correlation":
                     st.plotly_chart(scatter_ols(_sr["series_a"], _sr["series_b"],
                         _sr["coefficient"], _sr["intercept"],
-                        f"{_sv_al} (day 0)", f"{_sv_bl} (+{_sv_lag}d)"), use_container_width=True)
+                        f"{_sv_al} (day 0)", f"{_sv_bl} (+{_sv_lag}d)"), width="stretch")
                 elif _sv_atype == "30-Day Trend (OLS)":
                     _fig = go.Figure()
                     _fig.add_trace(go.Scatter(x=_sr["series"].index, y=_sr["series"].values,
@@ -1294,7 +1294,7 @@ if page == "Explorer":
                     _fig.add_trace(go.Scatter(x=_sr["fitted"].index, y=_sr["fitted"].values,
                         mode="lines", name="Trend", line=dict(color=GREEN, dash="dash", width=2)))
                     _fig.update_layout(xaxis_title="Date", yaxis_title=_sv_al, height=450, margin=dict(t=20))
-                    st.plotly_chart(_fig, use_container_width=True)
+                    st.plotly_chart(_fig, width="stretch")
                 elif _sv_atype == "Rolling Average":
                     _fig = make_subplots(specs=[[{"secondary_y": True}]])
                     _fig.add_trace(go.Scatter(x=_sr["series_a"].index, y=_sr["series_a"].values,
@@ -1302,7 +1302,7 @@ if page == "Explorer":
                     _fig.add_trace(go.Scatter(x=_sr["series_b"].index, y=_sr["series_b"].values,
                         name=_sv_bl, line=dict(color=ORANGE)), secondary_y=True)
                     _fig.update_layout(height=450, margin=dict(t=20))
-                    st.plotly_chart(_fig, use_container_width=True)
+                    st.plotly_chart(_fig, width="stretch")
             st.stop()
 
     result = st.session_state.result; rtype = st.session_state.result_type; meta = st.session_state.result_meta
@@ -1324,13 +1324,13 @@ if page == "Explorer":
     if rtype in ("Pearson Correlation", "Spearman Correlation"):
         stat_bar(result["r2"], result["p_value"], result["coefficient"], result["n"], result["label"])
         st.plotly_chart(scatter_ols(result["series_a"], result["series_b"], result["coefficient"],
-            result["intercept"], meta["var_a_label"], meta["var_b_label"]), use_container_width=True)
+            result["intercept"], meta["var_a_label"], meta["var_b_label"]), width="stretch")
 
     elif rtype == "Lagged Correlation":
         stat_bar(result["r2"], result["p_value"], result["coefficient"], result["n"], result["label"])
         st.plotly_chart(scatter_ols(result["series_a"], result["series_b"], result["coefficient"],
             result["intercept"], f"{meta['var_a_label']} (day 0)",
-            f"{meta['var_b_label']} (+{meta['lag']}d)"), use_container_width=True)
+            f"{meta['var_b_label']} (+{meta['lag']}d)"), width="stretch")
 
     elif rtype == "Rolling Average":
         stat_bar(result["r2"], result["p_value"], result["coefficient"], result["n"], result["label"])
@@ -1339,7 +1339,7 @@ if page == "Explorer":
         fig.add_trace(go.Scatter(x=a.index, y=a.values, name=meta["var_a_label"], line=dict(color=BLUE)), secondary_y=False)
         fig.add_trace(go.Scatter(x=b.index, y=b.values, name=meta["var_b_label"], line=dict(color=ORANGE)), secondary_y=True)
         fig.update_layout(height=450, margin=dict(t=20), legend=dict(orientation="h", y=1.08))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     elif rtype == "30-Day Trend (OLS)":
         coef = result["coefficient"]
@@ -1353,7 +1353,7 @@ if page == "Explorer":
                                  line=dict(color=GREEN, dash="dash", width=2)))
         fig.update_layout(xaxis_title="Date", yaxis_title=meta["var_a_label"],
                           height=450, margin=dict(t=20), legend=dict(orientation="h", y=1.08))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     elif rtype == "Multiple OLS Regression":
         stat_bar(r2=result["r2"], p=result["p_value"], n=result["n"],
@@ -1368,7 +1368,7 @@ if page == "Explorer":
                                  line=dict(color=GREEN, dash="dash"), showlegend=False))
         ol = meta["outcome_label"]
         fig.update_layout(xaxis_title=f"Actual {ol}", yaxis_title=f"Predicted {ol}", height=450, margin=dict(t=20))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         st.subheader("Coefficients")
         pl = [col_label(p) for p in meta["predictors"]]
         st.dataframe(pd.DataFrame({"Variable": pl,
@@ -1392,7 +1392,7 @@ if page == "Explorer":
                                      marker=dict(color=RED, size=11, symbol="circle-open", line=dict(width=2))))
         fig.update_layout(xaxis_title="Date", yaxis_title=meta["var_a_label"],
                           height=450, margin=dict(t=20), legend=dict(orientation="h", y=1.08))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     elif rtype == "Forecast (7-Day)":
         series = result["series"]; fc = result["forecast"]
@@ -1409,7 +1409,7 @@ if page == "Explorer":
             line=dict(color="rgba(0,0,0,0)"), name="Confidence"))
         fig.update_layout(xaxis_title="Date", yaxis_title=meta["var_a_label"],
                           height=450, margin=dict(t=20), legend=dict(orientation="h", y=1.08))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     elif rtype == "Decomposition":
         components = [("Observed", result["observed"], BLUE), ("Trend", result["trend"], GREEN),
@@ -1420,7 +1420,7 @@ if page == "Explorer":
             fig.add_trace(go.Scatter(x=s.index, y=s.values, mode="lines",
                                      line=dict(color=color), showlegend=False), row=i, col=1)
         fig.update_layout(height=800, margin=dict(t=40))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     # Save to Findings
     saveable = rtype not in ("Anomaly Detection","Forecast (7-Day)","Decomposition","Multiple OLS Regression")
