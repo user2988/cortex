@@ -107,33 +107,6 @@ def load_data(days: int = None) -> pd.DataFrame:
 # TARGETS
 # ─────────────────────────────────────────────────────────────
 
-def load_targets() -> dict:
-    """Returns {variable: target_value} for all user-defined targets."""
-    conn = psycopg2.connect(DATABASE_URL)
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT variable, target_value FROM targets")
-            return {row[0]: float(row[1]) for row in cur.fetchall()}
-    finally:
-        conn.close()
-
-
-def save_target(variable: str, value: float) -> None:
-    conn = psycopg2.connect(DATABASE_URL)
-    try:
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO targets (variable, target_value)
-                    VALUES (%s, %s)
-                    ON CONFLICT (variable) DO UPDATE
-                        SET target_value = EXCLUDED.target_value,
-                            updated_at   = NOW()
-                """, (variable, value))
-    finally:
-        conn.close()
-
-
 # ─────────────────────────────────────────────────────────────
 # EXPERIMENTS
 # ─────────────────────────────────────────────────────────────

@@ -46,12 +46,6 @@ MIGRATIONS = [
         created_at    TIMESTAMPTZ   DEFAULT NOW()
     )""",
     "CREATE INDEX IF NOT EXISTS idx_experiments_date ON experiments(start_date DESC)",
-    # v2: targets table
-    """CREATE TABLE IF NOT EXISTS targets (
-        variable      TEXT          PRIMARY KEY,
-        target_value  NUMERIC(10, 2) NOT NULL,
-        updated_at    TIMESTAMPTZ   DEFAULT NOW()
-    )""",
 ]
 
 def run():
