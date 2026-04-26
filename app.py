@@ -321,6 +321,43 @@ if page == "Insights":
     st.divider()
 
     # ══════════════════════════════════════════════════════════
+    # TOP FINDINGS
+    # ══════════════════════════════════════════════════════════
+    st.markdown("#### Top Findings")
+
+    _findings = get_findings()
+    _auto = _findings[~_findings["pinned"].astype(bool)] if not _findings.empty else pd.DataFrame()
+
+    if _auto.empty:
+        st.caption("No findings yet — the weekly job runs every Sunday and will surface your strongest biometric patterns here.")
+    else:
+        _auto = _auto.sort_values("r_squared", ascending=False).head(5)
+        for _, row in _auto.iterrows():
+            a_lbl = analysis.COL_LABELS.get(row["variable_a"], row["variable_a"])
+            b_lbl = analysis.COL_LABELS.get(row["variable_b"], row["variable_b"])
+            r2    = float(row["r_squared"])
+            coef  = float(row["coefficient"])
+            lag   = int(row["lag_days"])
+            n     = int(row["sample_size"])
+            direction = "↑" if coef > 0 else "↓"
+            lag_str   = f" · {lag}d lag" if lag > 0 else ""
+            r2_color  = GREEN if r2 >= 0.15 else ORANGE if r2 >= 0.07 else GRAY
+
+            with st.container(border=True):
+                c1, c2 = st.columns([7, 2])
+                c1.markdown(f"**{a_lbl}** → **{b_lbl}**{lag_str}")
+                c1.caption(f"{direction} {abs(coef):.3f} coefficient · {n} days of data")
+                c2.markdown(
+                    f"<div style='text-align:right;padding-top:0.3em'>"
+                    f"<div style='font-size:0.75rem;color:{GRAY}'>R²</div>"
+                    f"<div style='font-size:1.6em;font-weight:700;color:{r2_color}'>{r2:.3f}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+    st.divider()
+
+    # ══════════════════════════════════════════════════════════
     # RECOMMENDATIONS
     # ══════════════════════════════════════════════════════════
     st.markdown("#### Activity Recommendations")
