@@ -1,64 +1,50 @@
+"""
+Cortex — Debug Script
+Quick sanity-check for Fitbit API connectivity and token validity.
+Requires FITBIT_ACCESS_TOKEN env var (raw token, no OAuth flow).
+"""
+
 import os
-import json
 import requests
 from datetime import datetime, timedelta
 
-# 1. SETUP HEADERS & SETTINGS
-# Get this from your environment/secrets
 access_token = os.environ.get("FITBIT_ACCESS_TOKEN")
 
-# 2. DEFINE THE FUNCTION FIRST
-def fetch_fitbit(endpoint_url):
-    headers = {
+def fetch(url):
+    r = requests.get(url, headers={
         "Authorization": f"Bearer {access_token}",
-        "Accept-Language": "en_US"  # Forces Fitbit to use your profile's Timezone
-    }
-    response = requests.get(endpoint_url, headers=headers)
-    
-    if response.status_code == 401:
-        print("!! Unauthorized: Token is expired or scopes are missing.")
+        "Accept-Language": "en_US",
+    })
+    if r.status_code == 401:
+        print("Unauthorized — token expired or missing scopes.")
         return {}
-    if response.status_code != 200:
-        print(f"!! Error {response.status_code}: {response.text}")
+    if not r.ok:
+        print(f"Error {r.status_code}: {r.text}")
         return {}
-        
-    return response.json()
+    return r.json()
 
-# 3. DEFINE THE DATES
 yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-today = datetime.now().strftime("%Y-%m-%d")
+today     = datetime.now().strftime("%Y-%m-%d")
 
-# 4. EXECUTE THE FETCHES (Now that the function is defined)
 print(f"--- CORTEX DEBUG ---")
-print(f"Syncing for: Activity={yesterday} | Recovery={today}")
+print(f"Activity date: {yesterday}  |  Recovery date: {today}")
 
-# Steps (Yesterday)
-activity_data = fetch_fitbit(f"https://api.fitbit.com/1/user/-/activities/date/{yesterday}.json")
-steps = activity_data.get("summary", {}).get("steps", 0)
+activity = fetch(f"https://api.fitbit.com/1/user/-/activities/date/{yesterday}.json")
+sleep    = fetch(f"https://api.fitbit.com/1.2/user/-/sleep/date/{today}.json")
+hrv      = fetch(f"https://api.fitbit.com/1/user/-/hrv/date/{today}.json")
 
-# Sleep (Today)
-sleep_data = fetch_fitbit(f"https://api.fitbit.com/1.2/user/-/sleep/date/{today}.json")
-sleep_list = sleep_data.get('sleep', [])
+print(f"Steps:            {activity.get('summary', {}).get('steps', 'n/a')}")
 
-# HRV (Today)
-hrv_data = fetch_fitbit(f"https://api.fitbit.com/1/user/-/hrv/date/{today}.json")
-hrv_list = hrv_data.get('hrv', [])
-
-# 5. PRINT THE RESULTS
-print(f"Steps: {steps}")
-
+sleep_list = sleep.get("sleep", [])
 if sleep_list:
-    # Fitbit returns the most recent sleep first
-    main_sleep = sleep_list[0]
-    print(f"Sleep Duration: {main_sleep.get('minutesAsleep')} mins")
-    print(f"Sleep Efficiency: {main_sleep.get('efficiency')}%")
+    s = sleep_list[0]
+    print(f"Sleep duration:   {s.get('minutesAsleep')} min")
+    print(f"Sleep efficiency: {s.get('efficiency')}%")
 else:
-    print("Sleep: No data found. (Check 'today' date vs Fitbit App sync time)")
+    print("Sleep: no data (check sync time)")
 
+hrv_list = hrv.get("hrv", [])
 if hrv_list:
-    print(f"HRV (RMSSD): {hrv_list[0]['value']['dailyRmssd']}")
+    print(f"HRV RMSSD:        {hrv_list[0]['value']['dailyRmssd']}")
 else:
-    print("HRV: No data found.")
-
-
-
+    print("HRV: no data")
