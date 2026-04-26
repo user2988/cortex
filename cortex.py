@@ -252,8 +252,8 @@ class FitbitClient:
         data    = self._get(f"/1/user/-/activities/active-zone-minutes/date/{d}/1d.json")
         entries = data.get("activities-active-zone-minutes", [])
         if not entries:
-            return {"active_zone_minutes": None}
-        return {"active_zone_minutes": entries[0].get("value", {}).get("activeZoneMinutes")}
+            return {"active_zone_minutes": 0}
+        return {"active_zone_minutes": entries[0].get("value", {}).get("activeZoneMinutes") or 0}
 
 
 
