@@ -187,13 +187,13 @@ st.sidebar.caption("v2 — personal analytics")
 st.sidebar.divider()
 
 if "page" not in st.session_state:
-    st.session_state.page = "Insights"
+    st.session_state.page = "Dashboard"
 if "exp_detail_id" not in st.session_state:
     st.session_state.exp_detail_id = None
 if "saved_view_id" not in st.session_state:
     st.session_state.saved_view_id = None
 
-page = st.sidebar.radio("", ["Insights", "Experiments", "Explorer"],
+page = st.sidebar.radio("", ["Dashboard", "Insights", "Experiments", "Explorer"],
                          key="page", label_visibility="collapsed")
 
 if page != "Experiments":
