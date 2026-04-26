@@ -109,10 +109,6 @@ def get_findings():
 def get_experiments():
     return analysis.load_experiments()
 
-@st.cache_data(ttl=300)
-def get_targets():
-    return analysis.load_targets()
-
 
 
 @st.cache_data(ttl=300)
@@ -127,7 +123,7 @@ def get_score_recommendations():
 
 def bust_cache():
     get_data.clear(); get_findings.clear()
-    get_experiments.clear(); get_targets.clear()
+    get_experiments.clear()
     get_daily_scores.clear(); get_score_recommendations.clear()
 
 # ─────────────────────────────────────────────────────────────

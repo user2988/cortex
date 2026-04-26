@@ -14,7 +14,6 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 SCHEMA_FILE  = os.path.join(os.path.dirname(__file__), "schema.sql")
 
 DROP_SQL = """
-    DROP TABLE IF EXISTS weight    CASCADE;
     DROP TABLE IF EXISTS biometrics CASCADE;
 """
 

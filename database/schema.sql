@@ -1,11 +1,6 @@
--- ─────────────────────────────────────────────────────────────
 -- CORTEX — PostgreSQL Schema
--- v3: Biometrics + Nutrition + Weight
--- ─────────────────────────────────────────────────────────────
 
 -- Biometrics — one row per day
--- Activity fields reflect yesterday's data (fetched the following morning)
--- Sleep/recovery fields reflect the overnight period ending on this date
 CREATE TABLE IF NOT EXISTS biometrics (
     date                    DATE PRIMARY KEY,
 
@@ -43,8 +38,7 @@ CREATE TABLE IF NOT EXISTS biometrics (
     created_at              TIMESTAMPTZ DEFAULT NOW()
 );
 
-
--- v3 additive migrations (apply to existing databases without a full reset)
+-- Additive migrations
 ALTER TABLE biometrics ADD COLUMN IF NOT EXISTS hrv_deep_rmssd     NUMERIC(6, 2);
 ALTER TABLE biometrics ADD COLUMN IF NOT EXISTS spo2_max_pct       NUMERIC(5, 2);
 ALTER TABLE biometrics ADD COLUMN IF NOT EXISTS lightly_active_min INTEGER;
@@ -54,37 +48,7 @@ ALTER TABLE biometrics DROP COLUMN IF EXISTS   bedtime_consistency_sd;
 ALTER TABLE biometrics DROP COLUMN IF EXISTS   sleep_onset_latency_min;
 
 
--- Weight — one row per week, logged manually every Monday morning
-CREATE TABLE IF NOT EXISTS weight (
-    date                    DATE PRIMARY KEY,
-    weight_value            NUMERIC(5, 2) NOT NULL,
-    weight_unit             CHAR(3)       NOT NULL DEFAULT 'kg' CHECK (weight_unit IN ('kg', 'lbs')),
-
-    created_at              TIMESTAMPTZ DEFAULT NOW()
-);
-
-
--- Blood Pressure — up to 2 readings per session (AM / PM) per day
--- MAP (Mean Arterial Pressure) = (systolic + 2 * diastolic) / 3
--- Logged manually via the Streamlit UI; unique per date + session.
-CREATE TABLE IF NOT EXISTS blood_pressure_logs (
-    id                      SERIAL PRIMARY KEY,
-    date                    DATE        NOT NULL,
-    session                 TEXT        NOT NULL CHECK (session IN ('AM', 'PM')),
-
-    reading_1_systolic      INTEGER,
-    reading_1_diastolic     INTEGER,
-    reading_2_systolic      INTEGER,
-    reading_2_diastolic     INTEGER,
-
-    logged_at               TIMESTAMPTZ DEFAULT NOW(),
-
-    UNIQUE (date, session)
-);
-
-
--- Findings — correlation/analysis results, updated weekly by the findings job
--- Also populated on demand via the Streamlit Explorer (pinned=true for manual saves)
+-- Findings — correlation/analysis results
 CREATE TABLE IF NOT EXISTS findings (
     id              SERIAL PRIMARY KEY,
     variable_a      TEXT          NOT NULL,
@@ -99,7 +63,7 @@ CREATE TABLE IF NOT EXISTS findings (
     pinned          BOOLEAN       DEFAULT FALSE
 );
 
--- Experiments — user-defined hypothesis tests with a fixed duration
+-- Experiments — user-defined hypothesis tests
 CREATE TABLE IF NOT EXISTS experiments (
     id              SERIAL PRIMARY KEY,
     name            TEXT          NOT NULL,
@@ -114,30 +78,18 @@ CREATE TABLE IF NOT EXISTS experiments (
     created_at      TIMESTAMPTZ   DEFAULT NOW()
 );
 
--- Targets — user-defined daily targets
-CREATE TABLE IF NOT EXISTS targets (
-    variable        TEXT          PRIMARY KEY,
-    target_value    NUMERIC(10, 2) NOT NULL,
-    updated_at      TIMESTAMPTZ   DEFAULT NOW()
-);
-
-
--- Daily Scores — Sleep Score + Heart Score, computed by ml/score_engine.py
--- Both scores are 0–100, relative to the individual's own rolling 30-day baseline.
+-- Daily Scores — Sleep Score + Heart Score
 CREATE TABLE IF NOT EXISTS daily_scores (
     date                DATE        PRIMARY KEY,
     sleep_score         NUMERIC(5, 1),
     heart_score         NUMERIC(5, 1),
-    -- Sleep components
     duration_score      NUMERIC(5, 1),
     deep_score          NUMERIC(5, 1),
     rem_score           NUMERIC(5, 1),
     efficiency_score    NUMERIC(5, 1),
-    -- Heart components
     hrv_score           NUMERIC(5, 1),
     rhr_score           NUMERIC(5, 1),
     spo2_score          NUMERIC(5, 1),
-    -- Raw values for display
     sleep_duration_min  INTEGER,
     deep_pct            NUMERIC(5, 2),
     rem_pct             NUMERIC(5, 2),
@@ -147,13 +99,11 @@ CREATE TABLE IF NOT EXISTS daily_scores (
     computed_at         TIMESTAMPTZ DEFAULT NOW()
 );
 
-
 -- Score Recommendations — activity ranges that produce the best scores
--- Replaced entirely on each pipeline run; no historical retention needed.
 CREATE TABLE IF NOT EXISTS score_recommendations (
     id                  SERIAL PRIMARY KEY,
     generated_at        TIMESTAMPTZ NOT NULL,
-    target_score        TEXT        NOT NULL,   -- 'sleep' | 'heart'
+    target_score        TEXT        NOT NULL,
     activity_metric     TEXT        NOT NULL,
     activity_label      TEXT        NOT NULL,
     optimal_min         NUMERIC(10, 2),
@@ -168,120 +118,21 @@ CREATE TABLE IF NOT EXISTS score_recommendations (
     recommendation_text TEXT        NOT NULL
 );
 
-
--- ─────────────────────────────────────────────────────────────
--- Indexes for common query patterns
--- ─────────────────────────────────────────────────────────────
-
-CREATE INDEX IF NOT EXISTS idx_biometrics_date  ON biometrics(date DESC);
-CREATE INDEX IF NOT EXISTS idx_weight_date      ON weight(date DESC);
-CREATE INDEX IF NOT EXISTS idx_findings_r2      ON findings(r_squared DESC);
-CREATE INDEX IF NOT EXISTS idx_experiments_date ON experiments(start_date DESC);
-CREATE INDEX IF NOT EXISTS idx_bp_logs_date          ON blood_pressure_logs(date DESC);
-CREATE INDEX IF NOT EXISTS idx_daily_scores_date      ON daily_scores(date DESC);
-CREATE INDEX IF NOT EXISTS idx_score_recs_generated   ON score_recommendations(generated_at DESC);
-
-
--- ─────────────────────────────────────────────────────────────
--- ML TABLES  (canonical DDL — ML modules self-create on first
--- run as a safety net, but this file is the authoritative source)
--- ─────────────────────────────────────────────────────────────
-
+-- ML Pipeline Log
 CREATE TABLE IF NOT EXISTS ml_pipeline_log (
     id            SERIAL PRIMARY KEY,
     run_at        TIMESTAMPTZ  NOT NULL,
-    status        TEXT         NOT NULL,   -- 'success' | 'failed' | 'skipped'
+    status        TEXT         NOT NULL,
     duration_sec  NUMERIC(8, 2),
     stage         TEXT,
     error_message TEXT,
     created_at    TIMESTAMPTZ  DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS ml_model_runs (
-    id              SERIAL PRIMARY KEY,
-    run_at          TIMESTAMPTZ NOT NULL,
-    confidence_tier TEXT        NOT NULL,
-    n_rows          INTEGER     NOT NULL,
-    n_features      INTEGER     NOT NULL,
-    train_r2        NUMERIC(6, 4),
-    test_r2         NUMERIC(6, 4),
-    test_mae        NUMERIC(8, 4),
-    test_rmse       NUMERIC(8, 4),
-    top_features    JSONB,
-    model_path      TEXT,
-    created_at      TIMESTAMPTZ DEFAULT NOW()
-);
 
-CREATE TABLE IF NOT EXISTS ml_recommendations (
-    id               SERIAL PRIMARY KEY,
-    run_at           TIMESTAMPTZ NOT NULL,
-    model_run_id     INTEGER REFERENCES ml_model_runs(id),
-    confidence_tier  TEXT        NOT NULL,
-    n_days_data      INTEGER     NOT NULL,
-    current_map_avg  NUMERIC(6, 2),
-    predicted_map    NUMERIC(6, 2),
-    recommendations  JSONB       NOT NULL,
-    created_at       TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS ml_recommendation_outcomes (
-    id                  SERIAL PRIMARY KEY,
-    recommendation_id   INTEGER REFERENCES ml_recommendations(id),
-    evaluated_at        TIMESTAMPTZ  NOT NULL,
-    map_before_avg      NUMERIC(6, 2),
-    map_after_avg       NUMERIC(6, 2),
-    map_delta           NUMERIC(6, 2),
-    predicted_delta     NUMERIC(6, 2),
-    n_days_before       INTEGER,
-    n_days_after        INTEGER,
-    created_at          TIMESTAMPTZ  DEFAULT NOW()
-);
-
-
--- ─────────────────────────────────────────────────────────────
--- Additive migrations — safe to re-run on any existing database
--- ─────────────────────────────────────────────────────────────
-
--- MAP-era columns (added when wellness score was replaced by BP target).
--- Old wellness_* columns are left in place; no data is deleted.
--- New inserts write only to the map_* columns.
-ALTER TABLE IF EXISTS ml_recommendations
-    ADD COLUMN IF NOT EXISTS current_map_avg NUMERIC(6, 2);
-ALTER TABLE IF EXISTS ml_recommendations
-    ADD COLUMN IF NOT EXISTS predicted_map   NUMERIC(6, 2);
-
-ALTER TABLE IF EXISTS ml_recommendation_outcomes
-    ADD COLUMN IF NOT EXISTS map_before_avg NUMERIC(6, 2);
-ALTER TABLE IF EXISTS ml_recommendation_outcomes
-    ADD COLUMN IF NOT EXISTS map_after_avg  NUMERIC(6, 2);
-ALTER TABLE IF EXISTS ml_recommendation_outcomes
-    ADD COLUMN IF NOT EXISTS map_delta      NUMERIC(6, 2);
-
--- BP cross-field safety constraints: systolic must exceed diastolic when
--- both values are present. NOT VALID skips retroactive row checks so
--- existing data is never blocked; all future inserts/updates are validated.
-DO $$ BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'bp_r1_systolic_gt_diastolic'
-    ) THEN
-        ALTER TABLE blood_pressure_logs
-            ADD CONSTRAINT bp_r1_systolic_gt_diastolic
-            CHECK (reading_1_systolic  IS NULL
-                OR reading_1_diastolic IS NULL
-                OR reading_1_systolic  > reading_1_diastolic)
-            NOT VALID;
-    END IF;
-END$$;
-
-DO $$ BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'bp_r2_systolic_gt_diastolic'
-    ) THEN
-        ALTER TABLE blood_pressure_logs
-            ADD CONSTRAINT bp_r2_systolic_gt_diastolic
-            CHECK (reading_2_systolic  IS NULL
-                OR reading_2_diastolic IS NULL
-                OR reading_2_systolic  > reading_2_diastolic)
-            NOT VALID;
-    END IF;
-END$$;
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_biometrics_date       ON biometrics(date DESC);
+CREATE INDEX IF NOT EXISTS idx_findings_r2           ON findings(r_squared DESC);
+CREATE INDEX IF NOT EXISTS idx_experiments_date      ON experiments(start_date DESC);
+CREATE INDEX IF NOT EXISTS idx_daily_scores_date     ON daily_scores(date DESC);
+CREATE INDEX IF NOT EXISTS idx_score_recs_generated  ON score_recommendations(generated_at DESC);
