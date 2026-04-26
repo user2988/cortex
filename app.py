@@ -503,8 +503,7 @@ if page == "Dashboard":
                     text=f"{_avgs.sum()/60:.1f}h", x=0.5, y=0.5, showarrow=False,
                     font=dict(size=15, family="IBM Plex Mono", color="#E6EDF3"),
                 )
-                _f.update_layout(**_CL, height=230, showlegend=False,
-                                 margin=dict(l=6, r=6, t=36, b=6))
+                _f.update_layout(**_CL, height=230, showlegend=False)
                 st.plotly_chart(_f, use_container_width=True, config=_CFG)
 
     _se1, _se2 = st.columns(2)
@@ -591,8 +590,7 @@ if page == "Dashboard":
                     textfont=dict(size=9, family="IBM Plex Mono"),
                     hovertemplate="%{label}: %{value:.0f} min/day avg<extra></extra>",
                 ))
-                _f.update_layout(**_CL, height=200, showlegend=False,
-                                 margin=dict(l=6, r=6, t=36, b=6))
+                _f.update_layout(**_CL, height=200, showlegend=False)
                 st.plotly_chart(_f, use_container_width=True, config=_CFG)
 
     _act3, _act4 = st.columns(2)
