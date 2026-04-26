@@ -269,6 +269,27 @@ if page == "Dashboard":
     findings_df = get_findings()
     exps_df     = get_experiments()
 
+    # Build a date-indexed view of daily_scores for fallback trend charts.
+    # daily_scores has hrv_ms, rhr_bpm, spo2_avg_pct, sleep_duration_min
+    # denormalised into it, so CVD/sleep charts work even when biometrics is sparse.
+    if not scores.empty and "date" in scores.columns:
+        _sc_idx = scores.set_index("date").sort_index()
+    else:
+        _sc_idx = pd.DataFrame()
+
+    # Merge: prefer biometrics when available, fall back to daily_scores columns
+    def _get_series(col):
+        """Return the best available time series for a column."""
+        if not df_all.empty and col in df_all.columns:
+            s = df_all[col].dropna()
+            if len(s) >= 3:
+                return s
+        if not _sc_idx.empty and col in _sc_idx.columns:
+            s = _sc_idx[col].dropna()
+            if len(s) >= 3:
+                return s
+        return pd.Series(dtype=float)
+
     # ── Plotly base layout ──────────────────────────────────
     _CL = dict(
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
@@ -286,16 +307,12 @@ if page == "Dashboard":
     _CFG = {"displayModeBar": False}
 
     # ── Helpers ─────────────────────────────────────────────
-    def _latest(col, src=None):
-        src = src if src is not None else df_all
-        if src.empty or col not in src.columns: return None
-        s = src[col].dropna()
+    def _latest(col):
+        s = _get_series(col)
         return float(s.iloc[-1]) if len(s) else None
 
-    def _delta(col, src=None):
-        src = src if src is not None else df_all
-        if src.empty or col not in src.columns: return None, "#484F58"
-        s = src[col].dropna()
+    def _delta(col):
+        s = _get_series(col)
         if len(s) < 2: return None, "#484F58"
         d = float(s.iloc[-1]) - float(s.iloc[-2])
         return d, ("#10B981" if d > 0 else "#EF4444" if d < 0 else "#484F58")
@@ -380,6 +397,22 @@ if page == "Dashboard":
         unsafe_allow_html=True,
     )
 
+    # ── DATA STATUS BAR ─────────────────────────────────────
+    _n_bio    = len(df_all) if not df_all.empty else 0
+    _n_scores = len(scores) if not scores.empty else 0
+    _n_find   = len(findings_df) if not findings_df.empty else 0
+    _n_exp    = len(exps_df) if not exps_df.empty else 0
+    st.markdown(
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:10px;color:#484F58;"
+        f"margin-bottom:12px;padding:6px 0;border-bottom:1px solid #21262D'>"
+        f"biometrics {_n_bio}d &nbsp;·&nbsp; "
+        f"scores {_n_scores}d &nbsp;·&nbsp; "
+        f"findings {_n_find} &nbsp;·&nbsp; "
+        f"experiments {_n_exp}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
     # ── KPI STRIP ───────────────────────────────────────────
     _ss   = float(scores["sleep_score"].dropna().iloc[0]) if not scores.empty and not scores["sleep_score"].dropna().empty else None
     _hs   = float(scores["heart_score"].dropna().iloc[0]) if not scores.empty and not scores["heart_score"].dropna().empty else None
@@ -412,12 +445,17 @@ if page == "Dashboard":
         (_sc2, "heart_score", "Heart Score", "#2DD4BF", "rgba(45,212,191,0.10)"),
     ]:
         with _col:
-            if not scores.empty and not scores[_key].dropna().empty:
-                _tr = scores[["date", _key]].dropna().sort_values("date").set_index("date")[_key]
+            _tr = (_sc_idx[_key].dropna().sort_index()
+                   if not _sc_idx.empty and _key in _sc_idx.columns
+                   else pd.Series(dtype=float))
+            if len(_tr) >= 3:
                 _chart_label(_lbl, _tr)
                 _f = _trend(_tr, _clr, _fill, height=175, ref=70, rlabel="70")
                 _f.update_layout(yaxis=dict(**_CL["yaxis"], range=[0, 100]))
                 st.plotly_chart(_f, use_container_width=True, config=_CFG)
+            else:
+                st.markdown("<div class='empty-panel'>No score history yet.</div>",
+                            unsafe_allow_html=True)
 
     # ── SLEEP ARCHITECTURE ──────────────────────────────────
     _section("Sleep Architecture — 30 days")
@@ -471,14 +509,14 @@ if page == "Dashboard":
 
     _se1, _se2 = st.columns(2)
     with _se1:
-        _s = df_all["sleep_efficiency_pct"].dropna() if not df_all.empty and "sleep_efficiency_pct" in df_all.columns else pd.Series(dtype=float)
+        _s = _get_series("sleep_efficiency_pct")
         if len(_s) >= 3:
             _chart_label("Sleep Efficiency (%)", _s)
             st.plotly_chart(_trend(_s, "#4A90D9", "rgba(74,144,217,0.08)",
                                    height=180, ref=85, rlabel="85%"),
                             use_container_width=True, config=_CFG)
     with _se2:
-        _raw = df_all["sleep_duration_min"].dropna() if not df_all.empty and "sleep_duration_min" in df_all.columns else pd.Series(dtype=float)
+        _raw = _get_series("sleep_duration_min")
         if len(_raw) >= 3:
             _sh = _raw / 60
             _chart_label("Sleep Duration (h)", _sh)
@@ -507,11 +545,14 @@ if page == "Dashboard":
         (_cv4, "respiratory_rate", "Respiratory Rate (br/min)","#F59E0B", "rgba(245,158,11,0.08)",  None, ""),
     ]:
         with _col:
-            _s = df_all[_m].dropna() if not df_all.empty and _m in df_all.columns else pd.Series(dtype=float)
+            _s = _get_series(_m)
             if len(_s) >= 3:
                 _chart_label(_lbl, _s)
                 st.plotly_chart(_trend(_s, _clr, _fill, height=200, ref=_ref, rlabel=_rl),
                                 use_container_width=True, config=_CFG)
+            else:
+                st.markdown(f"<div class='empty-panel'>{_lbl}<br>No data yet.</div>",
+                            unsafe_allow_html=True)
 
     # ── ACTIVITY ────────────────────────────────────────────
     _section("Activity — 30 days")
