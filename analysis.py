@@ -10,6 +10,20 @@ from statsmodels.tsa.seasonal import seasonal_decompose
 from prophet import Prophet
 
 DATABASE_URL = os.environ["DATABASE_URL"]
+_SCHEMA_FILE = os.path.join(os.path.dirname(__file__), "database", "schema.sql")
+
+
+def ensure_schema() -> None:
+    """Creates all tables if they don't exist. Safe to run on every startup."""
+    with open(_SCHEMA_FILE) as f:
+        schema_sql = f.read()
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(schema_sql)
+    finally:
+        conn.close()
 
 BIOMETRIC_COLS = [
     "sleep_duration_min", "sleep_efficiency_pct", "deep_sleep_min",
