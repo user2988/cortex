@@ -39,28 +39,6 @@ MULTI_PRED = {"Multiple OLS Regression"}
 # Keys: "Category  ·  Subcategory"  Values: list of column names (shown raw)
 
 VAR_A_TREE = {
-    "Nutrition  ·  Macros":      ["calories_in", "protein_g", "carbs_g", "fat_g",
-                                   "fibre_g", "sugar_g", "water_ml"],
-    "Nutrition  ·  Fats":        ["saturated_fat_g", "monounsaturated_fat_g",
-                                   "polyunsaturated_fat_g", "trans_fat_g",
-                                   "cholesterol_mg", "omega3_mg", "omega6_mg",
-                                   "ala_mg", "epa_mg", "dha_mg"],
-    "Nutrition  ·  Vitamins":    ["vitamin_a_mcg", "vitamin_b6_mg", "vitamin_b12_mcg",
-                                   "vitamin_c_mg", "vitamin_d_iu", "vitamin_e_mg",
-                                   "vitamin_k_mcg", "folate_mcg", "biotin_mcg",
-                                   "thiamine_mg", "riboflavin_mg", "niacin_mg",
-                                   "pantothenic_acid_mg"],
-    "Nutrition  ·  Minerals":    ["magnesium_mg", "zinc_mg", "iron_mg", "calcium_mg",
-                                   "potassium_mg", "sodium_mg", "selenium_mcg",
-                                   "copper_mg", "manganese_mg", "chromium_mcg",
-                                   "iodine_mcg", "molybdenum_mcg", "phosphorus_mg"],
-    "Nutrition  ·  Amino Acids": ["tryptophan_g", "leucine_g", "lysine_g",
-                                   "arginine_g", "glutamic_acid_g", "glycine_g",
-                                   "threonine_g", "isoleucine_g", "methionine_g",
-                                   "phenylalanine_g", "valine_g", "histidine_g",
-                                   "alanine_g", "aspartic_acid_g", "cystine_g",
-                                   "proline_g", "serine_g", "tyrosine_g",
-                                   "hydroxyproline_g"],
     "Activity  ·  Volume":       ["steps", "distance_km", "calories_burned",
                                    "sedentary_min", "lightly_active_min"],
     "Activity  ·  Intensity":    ["active_zone_min", "very_active_min",
@@ -91,9 +69,8 @@ VAR_B_COLS = _flat_cols(VAR_B_TREE)
 def col_label(col):
     return analysis.COL_LABELS.get(col, col)
 
-A_CATS = ["Nutrition", "Activity"]
+A_CATS = ["Activity"]
 A_SUBS = {
-    "Nutrition": ["Macros", "Fats", "Vitamins", "Minerals", "Amino Acids"],
     "Activity":  ["Volume", "Intensity", "Zones"],
 }
 B_CATS = ["Sleep", "Cardiovascular"]
@@ -114,8 +91,6 @@ TREND_METRICS = [
     ("HRV",             "hrv_ms",           "ms",  "bio", True),
     ("RHR",             "rhr_bpm",          "bpm", "bio", False),
     ("Sleep Efficiency","sleep_efficiency_pct","%", "bio", True),
-    ("Magnesium",       "magnesium_mg",     "mg",  "nut", True),
-    ("Protein",         "protein_g",        "g",   "nut", True),
 ]
 
 # ─────────────────────────────────────────────────────────────
@@ -654,9 +629,8 @@ if page == "Explorer":
     df         = get_data(days)
 
     n_bio = df[analysis.BIOMETRIC_COLS].dropna(how="all").shape[0]
-    n_nut = df[analysis.NUTRITION_COLS].dropna(how="all").shape[0]
     date_range = (f"{df.index.min().date()} → {df.index.max().date()}" if len(df) else "—")
-    st.sidebar.caption(f"**{n_bio}** biometric · **{n_nut}** nutrition days  \n{date_range}")
+    st.sidebar.caption(f"**{n_bio}** biometric days  \n{date_range}")
     st.sidebar.divider()
 
     if   analysis_type == "Lagged Correlation": lag = st.sidebar.selectbox("Lag (days)", [0,1,2,3], index=1); corr_method = st.sidebar.radio("Method", ["Pearson","Spearman"], horizontal=True).lower()

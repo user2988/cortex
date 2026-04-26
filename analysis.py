@@ -36,28 +36,6 @@ BIOMETRIC_COLS = [
     "time_in_fat_burn_min", "time_in_cardio_min", "time_in_peak_min",
 ]
 
-# Excludes alcohol_units, caffeine_mg, caffeine_last_time
-NUTRITION_COLS = [
-    "calories_in", "protein_g", "carbs_g", "fat_g", "fibre_g",
-    "sugar_g", "sodium_mg", "water_ml",
-    "saturated_fat_g", "monounsaturated_fat_g", "polyunsaturated_fat_g",
-    "trans_fat_g", "cholesterol_mg",
-    "omega3_mg", "omega6_mg", "ala_mg", "epa_mg", "dha_mg",
-    "vitamin_a_mcg", "vitamin_d_iu", "vitamin_e_mg", "vitamin_k_mcg",
-    "vitamin_c_mg", "thiamine_mg", "riboflavin_mg", "niacin_mg",
-    "pantothenic_acid_mg", "vitamin_b6_mg", "biotin_mcg", "folate_mcg",
-    "vitamin_b12_mcg",
-    "calcium_mg", "iron_mg", "magnesium_mg", "phosphorus_mg",
-    "potassium_mg", "zinc_mg",
-    "selenium_mcg", "copper_mg", "manganese_mg", "chromium_mcg",
-    "iodine_mcg", "molybdenum_mcg",
-    "tryptophan_g", "threonine_g", "isoleucine_g", "leucine_g",
-    "lysine_g", "methionine_g", "phenylalanine_g", "valine_g",
-    "histidine_g", "alanine_g", "arginine_g", "aspartic_acid_g",
-    "cystine_g", "glutamic_acid_g", "glycine_g", "proline_g",
-    "serine_g", "tyrosine_g", "hydroxyproline_g",
-]
-
 COL_LABELS = {
     "sleep_duration_min":      "Sleep Duration (min)",
     "sleep_efficiency_pct":    "Sleep Efficiency (%)",
@@ -85,68 +63,6 @@ COL_LABELS = {
     "time_in_fat_burn_min":    "Fat Burn Zone (min)",
     "time_in_cardio_min":      "Cardio Zone (min)",
     "time_in_peak_min":        "Peak Zone (min)",
-    "calories_in":             "Calories In",
-    "protein_g":               "Protein (g)",
-    "carbs_g":                 "Carbohydrates (g)",
-    "fat_g":                   "Total Fat (g)",
-    "fibre_g":                 "Fibre (g)",
-    "sugar_g":                 "Sugar (g)",
-    "sodium_mg":               "Sodium (mg)",
-    "water_ml":                "Water (ml)",
-    "saturated_fat_g":         "Saturated Fat (g)",
-    "monounsaturated_fat_g":   "Monounsaturated Fat (g)",
-    "polyunsaturated_fat_g":   "Polyunsaturated Fat (g)",
-    "trans_fat_g":             "Trans Fat (g)",
-    "cholesterol_mg":          "Cholesterol (mg)",
-    "omega3_mg":               "Omega-3 (mg)",
-    "omega6_mg":               "Omega-6 (mg)",
-    "ala_mg":                  "ALA (mg)",
-    "epa_mg":                  "EPA (mg)",
-    "dha_mg":                  "DHA (mg)",
-    "vitamin_a_mcg":           "Vitamin A (mcg)",
-    "vitamin_d_iu":            "Vitamin D (IU)",
-    "vitamin_e_mg":            "Vitamin E (mg)",
-    "vitamin_k_mcg":           "Vitamin K (mcg)",
-    "vitamin_c_mg":            "Vitamin C (mg)",
-    "thiamine_mg":             "Thiamine / B1 (mg)",
-    "riboflavin_mg":           "Riboflavin / B2 (mg)",
-    "niacin_mg":               "Niacin / B3 (mg)",
-    "pantothenic_acid_mg":     "Pantothenic Acid / B5 (mg)",
-    "vitamin_b6_mg":           "Vitamin B6 (mg)",
-    "biotin_mcg":              "Biotin / B7 (mcg)",
-    "folate_mcg":              "Folate / B9 (mcg)",
-    "vitamin_b12_mcg":         "Vitamin B12 (mcg)",
-    "calcium_mg":              "Calcium (mg)",
-    "iron_mg":                 "Iron (mg)",
-    "magnesium_mg":            "Magnesium (mg)",
-    "phosphorus_mg":           "Phosphorus (mg)",
-    "potassium_mg":            "Potassium (mg)",
-    "zinc_mg":                 "Zinc (mg)",
-    "selenium_mcg":            "Selenium (mcg)",
-    "copper_mg":               "Copper (mg)",
-    "manganese_mg":            "Manganese (mg)",
-    "chromium_mcg":            "Chromium (mcg)",
-    "iodine_mcg":              "Iodine (mcg)",
-    "molybdenum_mcg":          "Molybdenum (mcg)",
-    "tryptophan_g":            "Tryptophan (g)",
-    "threonine_g":             "Threonine (g)",
-    "isoleucine_g":            "Isoleucine (g)",
-    "leucine_g":               "Leucine (g)",
-    "lysine_g":                "Lysine (g)",
-    "methionine_g":            "Methionine (g)",
-    "phenylalanine_g":         "Phenylalanine (g)",
-    "valine_g":                "Valine (g)",
-    "histidine_g":             "Histidine (g)",
-    "alanine_g":               "Alanine (g)",
-    "arginine_g":              "Arginine (g)",
-    "aspartic_acid_g":         "Aspartic Acid (g)",
-    "cystine_g":               "Cystine (g)",
-    "glutamic_acid_g":         "Glutamic Acid (g)",
-    "glycine_g":               "Glycine (g)",
-    "proline_g":               "Proline (g)",
-    "serine_g":                "Serine (g)",
-    "tyrosine_g":              "Tyrosine (g)",
-    "hydroxyproline_g":        "Hydroxyproline (g)",
 }
 
 
@@ -156,19 +72,17 @@ COL_LABELS = {
 
 def load_data(days: int = None) -> pd.DataFrame:
     """
-    Load joined biometrics + nutrition from PostgreSQL.
+    Load biometrics from PostgreSQL.
     days=None returns all available data.
     Excludes device-failure rows (sleep_duration_min == 0).
     """
-    bio = ", ".join(f"b.{c}" for c in BIOMETRIC_COLS)
-    nut = ", ".join(f"n.{c}" for c in NUTRITION_COLS)
-    where = f"WHERE b.date >= CURRENT_DATE - INTERVAL '{days} days'" if days else ""
+    bio = ", ".join(BIOMETRIC_COLS)
+    where = f"WHERE date >= CURRENT_DATE - INTERVAL '{days} days'" if days else ""
     sql = f"""
-        SELECT b.date, {bio}, {nut}
-        FROM biometrics b
-        LEFT JOIN nutrition n ON b.date = n.date
+        SELECT date, {bio}
+        FROM biometrics
         {where}
-        ORDER BY b.date
+        ORDER BY date
     """
     conn = psycopg2.connect(DATABASE_URL)
     try:
@@ -492,7 +406,7 @@ def lagged_correlation(df: pd.DataFrame, var_a: str, var_b: str,
                        lag: int, method: str = "pearson") -> dict:
     """
     Pairs var_a[today] with var_b[today + lag].
-    lag=1 → today's nutrition vs tomorrow's biometric.
+    lag=1 → today's var_a vs tomorrow's biometric.
     """
     shifted = df[[var_a]].copy()
     shifted[var_b] = df[var_b].shift(-lag)
