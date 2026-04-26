@@ -53,102 +53,6 @@ ALTER TABLE biometrics DROP COLUMN IF EXISTS   sleep_score;
 ALTER TABLE biometrics DROP COLUMN IF EXISTS   bedtime_consistency_sd;
 ALTER TABLE biometrics DROP COLUMN IF EXISTS   sleep_onset_latency_min;
 
--- Nutrition — one row per day
--- Populated from Cronometer CSV export (v2)
--- All 84 Cronometer nutrients stored; priority subset noted in PRD
-CREATE TABLE IF NOT EXISTS nutrition (
-    date                    DATE PRIMARY KEY REFERENCES biometrics(date),
-
-    -- Energy & Macros
-    calories_in             NUMERIC(8, 2),
-    protein_g               NUMERIC(8, 2),
-    carbs_g                 NUMERIC(8, 2),
-    fat_g                   NUMERIC(8, 2),
-    fibre_g                 NUMERIC(8, 2),
-    sugar_g                 NUMERIC(8, 2),
-    sodium_mg               NUMERIC(8, 2),
-    water_ml                NUMERIC(8, 2),
-
-    -- Fat subtypes
-    saturated_fat_g         NUMERIC(8, 2),
-    monounsaturated_fat_g   NUMERIC(8, 2),
-    polyunsaturated_fat_g   NUMERIC(8, 2),
-    trans_fat_g             NUMERIC(8, 2),
-    cholesterol_mg          NUMERIC(8, 2),
-
-    -- Stimulants / sleep impactors
-    -- NOTE v3: alcohol and caffeine will migrate to a supplements/lifestyle table
-    -- once the built-in logger replaces Cronometer
-    alcohol_units           NUMERIC(5, 2),
-    caffeine_mg             NUMERIC(8, 2),
-    caffeine_last_time      TIME,
-
-    -- Omega fatty acids
-    omega3_mg               NUMERIC(8, 2),
-    omega6_mg               NUMERIC(8, 2),
-    ala_mg                  NUMERIC(8, 2),   -- alpha-linolenic acid
-    epa_mg                  NUMERIC(8, 2),   -- eicosapentaenoic acid
-    dha_mg                  NUMERIC(8, 2),   -- docosahexaenoic acid
-
-    -- Fat-soluble vitamins
-    vitamin_a_mcg           NUMERIC(8, 2),
-    vitamin_d_iu            NUMERIC(8, 2),
-    vitamin_e_mg            NUMERIC(8, 2),
-    vitamin_k_mcg           NUMERIC(8, 2),
-
-    -- Water-soluble vitamins
-    vitamin_c_mg            NUMERIC(8, 2),
-    thiamine_mg             NUMERIC(8, 2),   -- B1
-    riboflavin_mg           NUMERIC(8, 2),   -- B2
-    niacin_mg               NUMERIC(8, 2),   -- B3
-    pantothenic_acid_mg     NUMERIC(8, 2),   -- B5
-    vitamin_b6_mg           NUMERIC(8, 2),   -- B6
-    biotin_mcg              NUMERIC(8, 2),   -- B7
-    folate_mcg              NUMERIC(8, 2),   -- B9
-    vitamin_b12_mcg         NUMERIC(8, 2),   -- B12
-
-    -- Priority minerals
-    calcium_mg              NUMERIC(8, 2),
-    iron_mg                 NUMERIC(8, 2),
-    magnesium_mg            NUMERIC(8, 2),
-    phosphorus_mg           NUMERIC(8, 2),
-    potassium_mg            NUMERIC(8, 2),
-    zinc_mg                 NUMERIC(8, 2),
-
-    -- Trace minerals
-    selenium_mcg            NUMERIC(8, 2),
-    copper_mg               NUMERIC(8, 2),
-    manganese_mg            NUMERIC(8, 2),
-    chromium_mcg            NUMERIC(8, 2),
-    iodine_mcg              NUMERIC(8, 2),
-    molybdenum_mcg          NUMERIC(8, 2),
-
-    -- Amino acids (essential)
-    tryptophan_g            NUMERIC(8, 4),
-    threonine_g             NUMERIC(8, 4),
-    isoleucine_g            NUMERIC(8, 4),
-    leucine_g               NUMERIC(8, 4),
-    lysine_g                NUMERIC(8, 4),
-    methionine_g            NUMERIC(8, 4),
-    phenylalanine_g         NUMERIC(8, 4),
-    valine_g                NUMERIC(8, 4),
-    histidine_g             NUMERIC(8, 4),
-
-    -- Amino acids (non-essential)
-    alanine_g               NUMERIC(8, 4),
-    arginine_g              NUMERIC(8, 4),
-    aspartic_acid_g         NUMERIC(8, 4),
-    cystine_g               NUMERIC(8, 4),
-    glutamic_acid_g         NUMERIC(8, 4),
-    glycine_g               NUMERIC(8, 4),
-    proline_g               NUMERIC(8, 4),
-    serine_g                NUMERIC(8, 4),
-    tyrosine_g              NUMERIC(8, 4),
-    hydroxyproline_g        NUMERIC(8, 4),
-
-    created_at              TIMESTAMPTZ DEFAULT NOW()
-);
-
 
 -- Weight — one row per week, logged manually every Monday morning
 CREATE TABLE IF NOT EXISTS weight (
@@ -210,7 +114,7 @@ CREATE TABLE IF NOT EXISTS experiments (
     created_at      TIMESTAMPTZ   DEFAULT NOW()
 );
 
--- Targets — user-defined daily targets for 30-Day Trends nutrition rows
+-- Targets — user-defined daily targets
 CREATE TABLE IF NOT EXISTS targets (
     variable        TEXT          PRIMARY KEY,
     target_value    NUMERIC(10, 2) NOT NULL,
@@ -270,7 +174,6 @@ CREATE TABLE IF NOT EXISTS score_recommendations (
 -- ─────────────────────────────────────────────────────────────
 
 CREATE INDEX IF NOT EXISTS idx_biometrics_date  ON biometrics(date DESC);
-CREATE INDEX IF NOT EXISTS idx_nutrition_date   ON nutrition(date DESC);
 CREATE INDEX IF NOT EXISTS idx_weight_date      ON weight(date DESC);
 CREATE INDEX IF NOT EXISTS idx_findings_r2      ON findings(r_squared DESC);
 CREATE INDEX IF NOT EXISTS idx_experiments_date ON experiments(start_date DESC);
