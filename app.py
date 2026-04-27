@@ -437,6 +437,62 @@ if page == "Dashboard":
     ]):
         _kc.markdown(_html, unsafe_allow_html=True)
 
+    # ── VITAL SIGNS GAUGES ──────────────────────────────────
+    _section("Vital Signs — Current")
+    _gv1, _gv2, _gv3, _gv4 = st.columns(4)
+
+    def _gauge_fig(label, value, min_v, max_v, unit, color_steps):
+        _gval = value if value is not None else min_v
+        _gc = "#484F58"
+        for _thr, _c in color_steps:
+            if _gval >= _thr:
+                _gc = _c
+        _fig_g = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=_gval,
+            number=dict(
+                suffix=f" {unit}" if unit else "",
+                font=dict(family="IBM Plex Mono, monospace", size=20, color="#E6EDF3"),
+            ),
+            title=dict(text=label,
+                       font=dict(family="Inter, sans-serif", size=10, color="#484F58")),
+            gauge=dict(
+                axis=dict(range=[min_v, max_v], tickwidth=1, tickcolor="#30363D",
+                          tickfont=dict(size=8, family="IBM Plex Mono, monospace",
+                                        color="#484F58"),
+                          nticks=5),
+                bar=dict(color=_gc, thickness=0.65),
+                bgcolor="rgba(0,0,0,0)",
+                borderwidth=1, bordercolor="#21262D",
+                steps=[dict(range=[min_v, max_v], color="rgba(255,255,255,0.03)")],
+                threshold=dict(line=dict(color="#E6EDF3", width=2),
+                               thickness=0.75, value=_gval),
+            ),
+        ))
+        _cll = {k: v for k, v in _CL.items() if k != "margin"}
+        _fig_g.update_layout(**_cll)
+        _fig_g.update_layout(height=170, margin=dict(l=12, r=12, t=30, b=8))
+        return _fig_g
+
+    for _gcol, _glbl, _gcn, _gmn, _gmx, _gu, _gcs in [
+        (_gv1, "Resting HR",    "rhr_bpm",      40,  100,   "bpm",
+         [(40, "#4A90D9"), (60, "#10B981"), (70, "#F59E0B"), (80, "#EF4444")]),
+        (_gv2, "SpO₂",          "spo2_avg_pct", 88,  100,   "%",
+         [(88, "#EF4444"), (90, "#F59E0B"), (95, "#10B981"), (98, "#2DD4BF")]),
+        (_gv3, "HRV RMSSD",    "hrv_ms",         0,  120,   "ms",
+         [(0,  "#EF4444"), (20, "#F59E0B"), (40, "#10B981"), (60, "#2DD4BF")]),
+        (_gv4, "Today's Steps", "steps",          0, 15000,  "",
+         [(0,  "#EF4444"), (5000, "#F59E0B"), (10000, "#10B981"), (13000, "#2DD4BF")]),
+    ]:
+        with _gcol:
+            _gv = _latest(_gcn)
+            if _gv is not None:
+                st.plotly_chart(_gauge_fig(_glbl, _gv, _gmn, _gmx, _gu, _gcs),
+                                width="stretch", config=_CFG)
+            else:
+                st.markdown(f"<div class='empty-panel'>{_glbl}<br>No data</div>",
+                            unsafe_allow_html=True)
+
     # ── SCORE TRENDS ────────────────────────────────────────
     _section("Score Trends — 90 days")
     _sc1, _sc2 = st.columns(2)
@@ -533,6 +589,27 @@ if page == "Dashboard":
             _f.update_layout(**_CL, height=180, bargap=0.2)
             st.plotly_chart(_f, width="stretch", config=_CFG)
 
+    # Sleep stage composition — normalised % per night
+    _scomp_cols = [c for c in _scols if not df_30.empty and c in df_30.columns]
+    if len(_scomp_cols) >= 2:
+        _scd2 = df_30[_scomp_cols].dropna(how="all")
+        if len(_scd2) >= 5:
+            _sct2 = _scd2.sum(axis=1).replace(0, np.nan)
+            _scp2 = _scd2.div(_sct2, axis=0).fillna(0) * 100
+            _chart_label("Sleep Stage Composition (% of night)")
+            _scf2 = go.Figure()
+            for _c, _n, _clr in _stage_cfg:
+                if _c in _scp2.columns:
+                    _scf2.add_trace(go.Bar(
+                        x=_scp2.index, y=_scp2[_c], name=_n, marker_color=_clr,
+                        hovertemplate=f"{_n}: %{{y:.1f}}%<extra></extra>",
+                    ))
+            _scf2.update_layout(**_CL, barmode="stack", height=160, bargap=0.1,
+                                legend=dict(orientation="h", y=1.25, x=0,
+                                            font=dict(size=10), bgcolor="rgba(0,0,0,0)"))
+            _scf2.update_layout(yaxis=dict(**_CL["yaxis"], range=[0, 100]))
+            st.plotly_chart(_scf2, width="stretch", config=_CFG)
+
     # ── CARDIOVASCULAR ──────────────────────────────────────
     _section("Cardiovascular — 90 days")
     _cv1, _cv2 = st.columns(2)
@@ -552,6 +629,48 @@ if page == "Dashboard":
             else:
                 st.markdown(f"<div class='empty-panel'>{_lbl}<br>No data yet.</div>",
                             unsafe_allow_html=True)
+
+    # Extended cardiovascular row: RHR distribution, VO₂ Max, Sedentary time
+    _cv5, _cv6, _cv7 = st.columns(3)
+
+    with _cv5:
+        _rhr_h = _get_series("rhr_bpm")
+        if len(_rhr_h) >= 5:
+            _chart_label(f"RHR Distribution ({len(_rhr_h)} days)")
+            _rhrf = go.Figure(go.Histogram(
+                x=_rhr_h.values,
+                xbins=dict(start=float(_rhr_h.min()) - 0.5,
+                           end=float(_rhr_h.max()) + 0.5, size=2),
+                marker_color="#EF4444", opacity=0.65,
+                hovertemplate="%{x} bpm: %{y} days<extra></extra>",
+            ))
+            _rhrf.update_layout(**_CL, height=200, bargap=0.06)
+            st.plotly_chart(_rhrf, width="stretch", config=_CFG)
+        else:
+            st.markdown("<div class='empty-panel'>RHR Distribution<br>Need ≥5 days</div>",
+                        unsafe_allow_html=True)
+
+    with _cv6:
+        _vos = _get_series("vo2_max")
+        if len(_vos) >= 3:
+            _chart_label("VO₂ Max (mL/kg/min)", _vos)
+            st.plotly_chart(_trend(_vos, "#2DD4BF", "rgba(45,212,191,0.08)", height=200),
+                            width="stretch", config=_CFG)
+        else:
+            st.markdown("<div class='empty-panel'>VO₂ Max<br>No data yet.</div>",
+                        unsafe_allow_html=True)
+
+    with _cv7:
+        _seds = _get_series("sedentary_min")
+        if len(_seds) >= 3:
+            _sedh = _seds / 60
+            _chart_label("Sedentary Time (h)", _sedh)
+            st.plotly_chart(_trend(_sedh, "#F59E0B", "rgba(245,158,11,0.08)",
+                                   height=200, ref=8, rlabel="8h"),
+                            width="stretch", config=_CFG)
+        else:
+            st.markdown("<div class='empty-panel'>Sedentary Time<br>No data yet.</div>",
+                        unsafe_allow_html=True)
 
     # ── ACTIVITY ────────────────────────────────────────────
     _section("Activity — 30 days")
@@ -612,6 +731,92 @@ if page == "Dashboard":
                                         showlegend=False))
                 _f.update_layout(**_CL, height=180, bargap=0.2)
                 st.plotly_chart(_f, width="stretch", config=_CFG)
+
+    # ── ACTIVITY BREAKDOWN ──────────────────────────────────
+    _section("Activity Breakdown — 30 days")
+    _ab1, _ab2 = st.columns(2)
+
+    with _ab1:
+        _aint_cfg = [
+            ("lightly_active_min", "Light",    "#4A90D9"),
+            ("fairly_active_min",  "Moderate", "#F59E0B"),
+            ("very_active_min",    "Intense",  "#EF4444"),
+        ]
+        _aint_any = not df_30.empty and any(c in df_30.columns for c, _, _ in _aint_cfg)
+        if _aint_any:
+            _chart_label("Activity Intensity (min/day)")
+            _aif = go.Figure()
+            for _c, _n, _clr in _aint_cfg:
+                if _c in df_30.columns:
+                    _aif.add_trace(go.Bar(
+                        x=df_30.index, y=df_30[_c].fillna(0), name=_n,
+                        marker_color=_clr,
+                        hovertemplate=f"{_n}: %{{y:.0f}} min<extra></extra>",
+                    ))
+            _aif.update_layout(**_CL, barmode="stack", height=220, bargap=0.15,
+                               legend=dict(orientation="h", y=1.18, x=0,
+                                           font=dict(size=10), bgcolor="rgba(0,0,0,0)"))
+            st.plotly_chart(_aif, width="stretch", config=_CFG)
+        else:
+            st.markdown("<div class='empty-panel'>Activity Intensity<br>No data yet.</div>",
+                        unsafe_allow_html=True)
+
+    with _ab2:
+        _zone_cfg2 = [
+            ("time_in_fat_burn_min", "Fat Burn", "#F59E0B"),
+            ("time_in_cardio_min",   "Cardio",   "#EF4444"),
+            ("time_in_peak_min",     "Peak",     "#8B5CF6"),
+        ]
+        _zone_any2 = not df_30.empty and any(c in df_30.columns for c, _, _ in _zone_cfg2)
+        if _zone_any2:
+            _chart_label("HR Zones (min/day)")
+            _zf = go.Figure()
+            for _c, _n, _clr in _zone_cfg2:
+                if _c in df_30.columns:
+                    _zf.add_trace(go.Bar(
+                        x=df_30.index, y=df_30[_c].fillna(0), name=_n,
+                        marker_color=_clr,
+                        hovertemplate=f"{_n}: %{{y:.0f}} min<extra></extra>",
+                    ))
+            _zf.update_layout(**_CL, barmode="stack", height=220, bargap=0.15,
+                              legend=dict(orientation="h", y=1.18, x=0,
+                                          font=dict(size=10), bgcolor="rgba(0,0,0,0)"))
+            st.plotly_chart(_zf, width="stretch", config=_CFG)
+        else:
+            st.markdown("<div class='empty-panel'>HR Zones<br>No data yet.</div>",
+                        unsafe_allow_html=True)
+
+    # ── STEPS WEEKLY HEATMAP ─────────────────────────────────
+    _section("Steps — Weekly Pattern")
+    _stps_s = _get_series("steps")
+    if len(_stps_s) >= 14:
+        _shm_df = _stps_s.reset_index()
+        _shm_df.columns = ["date", "steps"]
+        _shm_df["dow"]  = _shm_df["date"].dt.dayofweek
+        _iso             = _shm_df["date"].dt.isocalendar()
+        _shm_df["week"] = _iso.week.astype(int)
+        _shm_df["year"] = _iso.year.astype(int)
+        _shm_df["yw"]   = _shm_df.apply(
+            lambda r: f"{int(r['year'])}-W{int(r['week']):02d}", axis=1)
+        _pvt = _shm_df.pivot_table(values="steps", index="dow",
+                                    columns="yw", aggfunc="sum")
+        _pvt = _pvt.reindex(range(7))
+        _dlbl = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        _chart_label("Step count by day-of-week × calendar week (teal = more steps)")
+        _hmf = go.Figure(go.Heatmap(
+            z=_pvt.values, x=_pvt.columns.tolist(), y=_dlbl,
+            colorscale=[[0, "#161B22"], [0.3, "#1A4A6E"],
+                        [0.65, "#2DD4BF"], [1.0, "#A7F3D0"]],
+            showscale=False,
+            hovertemplate="%{x} %{y}: %{z:,.0f} steps<extra></extra>",
+        ))
+        _hmf.update_layout(**_CL, height=220)
+        _hmf.update_layout(margin=dict(l=40, r=16, t=30, b=20))
+        st.plotly_chart(_hmf, width="stretch", config=_CFG)
+    else:
+        st.markdown(
+            "<div class='empty-panel'>Weekly step pattern — need ≥14 days of data.</div>",
+            unsafe_allow_html=True)
 
     # ── INTELLIGENCE ────────────────────────────────────────
     _section("Intelligence")
