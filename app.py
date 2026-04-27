@@ -264,8 +264,11 @@ if page == "Dashboard":
     # ── Data ────────────────────────────────────────────────
     scores      = get_daily_scores()
     df_all      = get_data(90)
-    df_30       = (df_all[df_all.index >= df_all.index.max() - pd.Timedelta(days=29)]
-                   if not df_all.empty else pd.DataFrame())
+    _range_opt  = st.session_state.get("dash_range", "30 days")
+    _days_w = {"7 days": 7, "30 days": 30, "90 days": 90}.get(
+                  st.session_state.get("dash_range", "30 days"), 30)
+    _df_w   = (df_all[df_all.index >= df_all.index.max() - pd.Timedelta(days=_days_w - 1)]
+               if not df_all.empty else pd.DataFrame())
     findings_df = get_findings()
     exps_df     = get_experiments()
 
@@ -326,13 +329,28 @@ if page == "Dashboard":
         if v >= 10000: return f"{v:,.0f}"
         return f"{v:.0f}" if v >= 10 else f"{v:.1f}"
 
-    def _kpi(label, value, unit="", delta=None, dcolor="#484F58", vcolor=None):
+    def _metric_bg(col, val):
+        if val is None: return None
+        if col == "hrv_ms":
+            return "#10B981" if val >= 40 else "#F59E0B" if val >= 25 else "#EF4444"
+        if col == "rhr_bpm":
+            return "#10B981" if val <= 60 else "#F59E0B" if val <= 75 else "#EF4444"
+        if col == "spo2_avg_pct":
+            return "#10B981" if val >= 95 else "#F59E0B" if val >= 90 else "#EF4444"
+        if col == "steps":
+            return "#10B981" if val >= 10000 else "#F59E0B" if val >= 5000 else "#EF4444"
+        if col == "active_zone_min":
+            return "#10B981" if val >= 30 else "#F59E0B" if val >= 15 else "#EF4444"
+        return None
+
+    def _kpi(label, value, unit="", delta=None, dcolor="#484F58", vcolor=None, bg=None):
         vc  = vcolor or "#E6EDF3"
         dh  = ""
         if delta is not None:
             arr = "↑" if delta > 0 else "↓" if delta < 0 else "→"
             dh  = f"<div class='dash-kpi-delta' style='color:{dcolor}'>{arr} {abs(delta):.1f}</div>"
-        return (f"<div class='dash-kpi-card'>"
+        top = f"border-top:2px solid {bg};" if bg else ""
+        return (f"<div class='dash-kpi-card' style='{top}'>"
                 f"<div class='dash-kpi-label'>{label}</div>"
                 f"<div class='dash-kpi-value' style='color:{vc}'>{_fmt(value)}"
                 f"<span class='dash-kpi-unit'>{unit}</span></div>{dh}</div>")
@@ -353,8 +371,10 @@ if page == "Dashboard":
                     unsafe_allow_html=True)
 
     def _trend(series, color, fill, height=190, ref=None, rlabel=""):
-        roll = series.rolling(7, min_periods=3).mean()
-        fig  = go.Figure()
+        roll   = series.rolling(7, min_periods=3).mean()
+        mean_v = series.mean()
+        std_v  = series.std()
+        fig    = go.Figure()
         fig.add_trace(go.Scatter(
             x=series.index, y=series.values, mode="markers",
             marker=dict(color=color, size=3, opacity=0.3), showlegend=False,
@@ -366,6 +386,16 @@ if page == "Dashboard":
             showlegend=False,
             hovertemplate="%{x|%b %-d} (7d avg): %{y:.1f}<extra></extra>",
         ))
+        if std_v > 0 and len(series) >= 10:
+            _anom = series[(series - mean_v).abs() > 2 * std_v]
+            if len(_anom):
+                fig.add_trace(go.Scatter(
+                    x=_anom.index, y=_anom.values, mode="markers",
+                    marker=dict(color="#F59E0B", size=7, symbol="circle-open",
+                                line=dict(width=2, color="#F59E0B")),
+                    showlegend=False,
+                    hovertemplate="%{x|%b %-d}: %{y:.1f} ⚠<extra></extra>",
+                ))
         if ref is not None:
             fig.add_hline(y=ref, line_dash="dot", line_color="#30363D", line_width=1,
                           annotation_text=rlabel, annotation_font_color="#484F58",
@@ -382,7 +412,7 @@ if page == "Dashboard":
     else:
         _sc, _st = "#484F58", "No data"
 
-    _hc1, _hc2 = st.columns([5, 2])
+    _hc1, _hc2, _hc3 = st.columns([4, 2, 2])
     _hc1.markdown(
         "<span style='font-family:Inter;font-size:22px;font-weight:600;"
         "color:#E6EDF3;letter-spacing:-0.02em'>Cortex</span>"
@@ -390,7 +420,9 @@ if page == "Dashboard":
         f"margin-left:12px'>{today_str}</span>",
         unsafe_allow_html=True,
     )
-    _hc2.markdown(
+    _hc2.radio("", ["7 days", "30 days", "90 days"], index=1, horizontal=True,
+                key="dash_range", label_visibility="collapsed")
+    _hc3.markdown(
         f"<div style='text-align:right;padding-top:4px'>"
         f"<span style='font-family:IBM Plex Mono,monospace;font-size:11px;"
         f"color:{_sc}'>● {_st}</span></div>",
@@ -413,6 +445,108 @@ if page == "Dashboard":
         unsafe_allow_html=True,
     )
 
+    # ── TODAY AT A GLANCE ───────────────────────────────────
+    def _recovery_score():
+        pts = 50.0
+        _h = _get_series("hrv_ms")
+        if len(_h) >= 14:
+            h7 = float(_h.iloc[-7:].mean()); hb = float(_h.mean())
+            if hb > 0: pts += (h7 / hb - 1) * 100
+        _r = _get_series("rhr_bpm")
+        if len(_r) >= 14:
+            r7 = float(_r.iloc[-7:].mean()); rb = float(_r.mean())
+            if rb > 0: pts -= (r7 / rb - 1) * 100
+        _e = _get_series("sleep_efficiency_pct")
+        if len(_e) >= 14:
+            e7 = float(_e.iloc[-7:].mean()); eb = float(_e.mean())
+            if eb > 0: pts += (e7 / eb - 1) * 50
+        return max(0, min(100, round(pts)))
+
+    def _streak(col, threshold, direction="above"):
+        s = _get_series(col)
+        if len(s) < 1: return 0
+        count = 0
+        for v in reversed(s.sort_index().values):
+            if pd.isna(v): break
+            meets = (v >= threshold) if direction == "above" else (v <= threshold)
+            if meets: count += 1
+            else: break
+        return count
+
+    _rec        = _recovery_score()
+    _rec_color  = "#10B981" if _rec >= 70 else "#F59E0B" if _rec >= 45 else "#EF4444"
+    _rec_label  = "Good" if _rec >= 70 else "Fair" if _rec >= 45 else "Low"
+    _stk_steps  = _streak("steps", 8000)
+    _stk_sleep  = _streak("sleep_efficiency_pct", 80)
+
+    _hrv_s   = _get_series("hrv_ms")
+    _rhr_s   = _get_series("rhr_bpm")
+    _eff_s   = _get_series("sleep_efficiency_pct")
+    _dur_s   = _get_series("sleep_duration_min")
+    _hrv_now = float(_hrv_s.iloc[-1]) if len(_hrv_s) else None
+    _rhr_now = float(_rhr_s.iloc[-1]) if len(_rhr_s) else None
+    _eff_now = float(_eff_s.iloc[-1]) if len(_eff_s) else None
+    _dur_now = float(_dur_s.iloc[-1]) / 60 if len(_dur_s) else None
+    _hrv_base = float(_hrv_s.mean()) if len(_hrv_s) >= 14 else None
+
+    _ins_parts = []
+    if _hrv_now and _hrv_base:
+        _hp = (_hrv_now / _hrv_base - 1) * 100
+        if abs(_hp) >= 5:
+            _ins_parts.append(f"HRV {abs(_hp):.0f}% {'above' if _hp > 0 else 'below'} baseline")
+    if _stk_steps >= 3:
+        _ins_parts.append(f"{_stk_steps}-day steps streak")
+    if _stk_sleep >= 3:
+        _ins_parts.append(f"{_stk_sleep}-day sleep streak")
+    _insight = " · ".join(_ins_parts) if _ins_parts else "Keep logging daily to build your baseline."
+
+    _tc1, _tc2, _tc3, _tc4 = st.columns([1, 1.2, 1.2, 3])
+
+    _tc1.markdown(
+        f"<div style='background:#161B22;border:1px solid #21262D;border-radius:4px;"
+        f"padding:12px 10px;text-align:center'>"
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:8px;font-weight:600;"
+        f"letter-spacing:.1em;text-transform:uppercase;color:#484F58;margin-bottom:4px'>Recovery</div>"
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:34px;font-weight:300;"
+        f"color:{_rec_color};line-height:1.1'>{_rec}</div>"
+        f"<div style='font-family:Inter,sans-serif;font-size:10px;color:{_rec_color}'>{_rec_label}</div>"
+        f"</div>", unsafe_allow_html=True)
+
+    _stk_sc = "#2DD4BF" if _stk_steps >= 3 else "#F59E0B" if _stk_steps >= 1 else "#484F58"
+    _stk_ec = "#2DD4BF" if _stk_sleep >= 3 else "#F59E0B" if _stk_sleep >= 1 else "#484F58"
+    _tc2.markdown(
+        f"<div style='background:#161B22;border:1px solid #21262D;border-radius:4px;padding:12px 10px'>"
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:8px;font-weight:600;"
+        f"letter-spacing:.1em;text-transform:uppercase;color:#484F58;margin-bottom:6px'>Streaks</div>"
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:12px;color:#8B949E'>"
+        f"Steps ≥8k &nbsp;<span style='color:{_stk_sc};font-size:14px'>{_stk_steps}d</span></div>"
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:12px;color:#8B949E;margin-top:4px'>"
+        f"Sleep ≥80% &nbsp;<span style='color:{_stk_ec};font-size:14px'>{_stk_sleep}d</span></div>"
+        f"</div>", unsafe_allow_html=True)
+
+    _tc3.markdown(
+        f"<div style='background:#161B22;border:1px solid #21262D;border-radius:4px;padding:12px 10px'>"
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:8px;font-weight:600;"
+        f"letter-spacing:.1em;text-transform:uppercase;color:#484F58;margin-bottom:6px'>Last Night</div>"
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:11px;color:#8B949E'>"
+        f"Sleep &nbsp;<span style='color:#E6EDF3'>{f'{_dur_now:.1f}h' if _dur_now else '—'}</span>"
+        f"&nbsp; Eff &nbsp;<span style='color:#E6EDF3'>{f'{_eff_now:.0f}%' if _eff_now else '—'}</span></div>"
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:11px;color:#8B949E;margin-top:4px'>"
+        f"HRV &nbsp;<span style='color:#2DD4BF'>{f'{_hrv_now:.0f}ms' if _hrv_now else '—'}</span>"
+        f"&nbsp; RHR &nbsp;<span style='color:#EF4444'>{f'{_rhr_now:.0f}bpm' if _rhr_now else '—'}</span></div>"
+        f"</div>", unsafe_allow_html=True)
+
+    _tc4.markdown(
+        f"<div style='background:#161B22;border:1px solid #21262D;border-radius:4px;"
+        f"padding:12px 14px'>"
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:8px;font-weight:600;"
+        f"letter-spacing:.1em;text-transform:uppercase;color:#484F58;margin-bottom:6px'>Summary</div>"
+        f"<div style='font-family:Inter,sans-serif;font-size:12px;color:#8B949E;line-height:1.6'>"
+        f"{_insight}</div>"
+        f"</div>", unsafe_allow_html=True)
+
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
     # ── KPI STRIP ───────────────────────────────────────────
     _ss   = float(scores["sleep_score"].dropna().iloc[0]) if not scores.empty and not scores["sleep_score"].dropna().empty else None
     _hs   = float(scores["heart_score"].dropna().iloc[0]) if not scores.empty and not scores["heart_score"].dropna().empty else None
@@ -428,14 +562,53 @@ if page == "Dashboard":
     for _kc, _html in zip(_ks, [
         _kpi("Sleep Score", _ss, "",    _ssd,   _score_color(_ss) if (_ssd or 0) > 0 else "#EF4444" if (_ssd or 0) < 0 else "#484F58", _score_color(_ss)),
         _kpi("Heart Score", _hs, "",    _hsd,   _score_color(_hs) if (_hsd or 0) > 0 else "#EF4444" if (_hsd or 0) < 0 else "#484F58", _score_color(_hs)),
-        _kpi("HRV RMSSD",   _latest("hrv_ms"),          "ms",   _hrv_d, _hrv_dc),
-        _kpi("Resting HR",  _latest("rhr_bpm"),          "bpm",  _rhr_d, _rhr_dc),
-        _kpi("SpO₂",        _latest("spo2_avg_pct"),     "%"),
-        _kpi("Steps",       _latest("steps"),            "",     _stps_d, _stps_dc),
-        _kpi("Active Min",  _latest("active_zone_min"),  "min"),
+        _kpi("HRV RMSSD",  _latest("hrv_ms"),         "ms",  _hrv_d, _hrv_dc,  bg=_metric_bg("hrv_ms", _latest("hrv_ms"))),
+        _kpi("Resting HR", _latest("rhr_bpm"),         "bpm", _rhr_d, _rhr_dc,  bg=_metric_bg("rhr_bpm", _latest("rhr_bpm"))),
+        _kpi("SpO₂",       _latest("spo2_avg_pct"),    "%",   bg=_metric_bg("spo2_avg_pct", _latest("spo2_avg_pct"))),
+        _kpi("Steps",      _latest("steps"),           "",    _stps_d, _stps_dc, bg=_metric_bg("steps", _latest("steps"))),
+        _kpi("Active Min", _latest("active_zone_min"), "min", bg=_metric_bg("active_zone_min", _latest("active_zone_min"))),
         _kpi("Calories",    _latest("calories_burned"),  "kcal"),
     ]):
         _kc.markdown(_html, unsafe_allow_html=True)
+
+    # ── 7-DAY ROLLING vs BASELINE ─────────────────────────────
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    _rm_cfg = [
+        ("hrv_ms",               "HRV",        "ms",   False),
+        ("rhr_bpm",              "RHR",         "bpm",  True),
+        ("spo2_avg_pct",         "SpO₂",        "%",    False),
+        ("steps",                "Steps",       "",     False),
+        ("sleep_efficiency_pct", "Sleep Eff",   "%",    False),
+        ("calories_burned",      "Calories",    "kcal", False),
+    ]
+    _rm_cols = st.columns(len(_rm_cfg))
+    for _rmc, (_rmk, _rml, _rmu, _rminv) in zip(_rm_cols, _rm_cfg):
+        _rms = _get_series(_rmk)
+        if len(_rms) >= 14:
+            _r7  = float(_rms.iloc[-7:].mean())
+            _r90 = float(_rms.mean())
+            _rpct = (_r7 / _r90 - 1) * 100 if _r90 != 0 else 0
+            if _rminv: _rpct = -_rpct
+            _rcc = "#10B981" if _rpct >= 3 else "#EF4444" if _rpct <= -3 else "#484F58"
+            _rarr = "↑" if _rpct >= 3 else "↓" if _rpct <= -3 else "→"
+            _rmc.markdown(
+                f"<div style='background:#161B22;border:1px solid #21262D;border-radius:4px;"
+                f"padding:5px 8px;text-align:center'>"
+                f"<div style='font-family:IBM Plex Mono,monospace;font-size:8px;font-weight:600;"
+                f"letter-spacing:.1em;text-transform:uppercase;color:#484F58'>{_rml}</div>"
+                f"<div style='font-family:IBM Plex Mono,monospace;font-size:15px;font-weight:300;"
+                f"color:{_rcc}'>{_rarr} {abs(_rpct):.1f}%</div>"
+                f"<div style='font-family:IBM Plex Mono,monospace;font-size:8px;color:#484F58'>"
+                f"7d avg {_r7:.1f}{_rmu}</div>"
+                f"</div>", unsafe_allow_html=True)
+        else:
+            _rmc.markdown(
+                f"<div style='background:#161B22;border:1px solid #21262D;border-radius:4px;"
+                f"padding:5px 8px;text-align:center'>"
+                f"<div style='font-family:IBM Plex Mono,monospace;font-size:8px;font-weight:600;"
+                f"letter-spacing:.1em;text-transform:uppercase;color:#484F58'>{_rml}</div>"
+                f"<div style='font-family:IBM Plex Mono,monospace;font-size:12px;color:#484F58'>—</div>"
+                f"</div>", unsafe_allow_html=True)
 
     # ── VITAL SIGNS GAUGES ──────────────────────────────────
     _section("Vital Signs — Current")
@@ -514,7 +687,7 @@ if page == "Dashboard":
                             unsafe_allow_html=True)
 
     # ── SLEEP ARCHITECTURE ──────────────────────────────────
-    _section("Sleep Architecture — 30 days")
+    _section(f"Sleep Architecture — {_range_opt}")
     _sa1, _sa2 = st.columns([3, 1])
 
     _stage_cfg = [
@@ -526,8 +699,8 @@ if page == "Dashboard":
     _scols = [c for c, _, _ in _stage_cfg]
 
     with _sa1:
-        if not df_30.empty and any(c in df_30.columns for c in _scols):
-            _sd = df_30[[c for c in _scols if c in df_30.columns]].dropna(how="all")
+        if not _df_w.empty and any(c in _df_w.columns for c in _scols):
+            _sd = _df_w[[c for c in _scols if c in _df_w.columns]].dropna(how="all")
             if not _sd.empty:
                 _chart_label("Sleep Stage Breakdown (min)")
                 _f = go.Figure()
@@ -543,8 +716,8 @@ if page == "Dashboard":
                 st.plotly_chart(_f, width="stretch", config=_CFG)
 
     with _sa2:
-        if not df_30.empty and any(c in df_30.columns for c in _scols):
-            _avgs = df_30[[c for c in _scols if c in df_30.columns]].mean()
+        if not _df_w.empty and any(c in _df_w.columns for c in _scols):
+            _avgs = _df_w[[c for c in _scols if c in _df_w.columns]].mean()
             if _avgs.sum() > 0:
                 _chart_label("30-Day Avg")
                 _f = go.Figure(go.Pie(
@@ -590,9 +763,9 @@ if page == "Dashboard":
             st.plotly_chart(_f, width="stretch", config=_CFG)
 
     # Sleep stage composition — normalised % per night
-    _scomp_cols = [c for c in _scols if not df_30.empty and c in df_30.columns]
+    _scomp_cols = [c for c in _scols if not _df_w.empty and c in _df_w.columns]
     if len(_scomp_cols) >= 2:
-        _scd2 = df_30[_scomp_cols].dropna(how="all")
+        _scd2 = _df_w[_scomp_cols].dropna(how="all")
         if len(_scd2) >= 5:
             _sct2 = _scd2.sum(axis=1).replace(0, np.nan)
             _scp2 = _scd2.div(_sct2, axis=0).fillna(0) * 100
@@ -673,11 +846,11 @@ if page == "Dashboard":
                         unsafe_allow_html=True)
 
     # ── ACTIVITY ────────────────────────────────────────────
-    _section("Activity — 30 days")
+    _section(f"Activity — {_range_opt}")
     _act1, _act2 = st.columns([2, 1])
 
     with _act1:
-        _s = df_30["steps"].dropna() if not df_30.empty and "steps" in df_30.columns else pd.Series(dtype=float)
+        _s = _df_w["steps"].dropna() if not _df_w.empty and "steps" in _df_w.columns else pd.Series(dtype=float)
         if len(_s) >= 3:
             _chart_label("Daily Steps", _s)
             _f = go.Figure()
@@ -697,8 +870,8 @@ if page == "Dashboard":
     with _act2:
         _zcols = ["time_in_fat_burn_min", "time_in_cardio_min",
                   "time_in_peak_min", "lightly_active_min"]
-        if not df_30.empty and any(c in df_30.columns for c in _zcols):
-            _zavg = df_30[[c for c in _zcols if c in df_30.columns]].mean()
+        if not _df_w.empty and any(c in _df_w.columns for c in _zcols):
+            _zavg = _df_w[[c for c in _zcols if c in _df_w.columns]].mean()
             if _zavg.sum() > 0:
                 _chart_label("Avg Activity Zones")
                 _f = go.Figure(go.Pie(
@@ -718,7 +891,7 @@ if page == "Dashboard":
         (_act4, "distance_km",     "Distance (km)",          "#7EC8A4", "rgba(126,200,164,0.08)"),
     ]:
         with _col:
-            _s = df_30[_m].dropna() if not df_30.empty and _m in df_30.columns else pd.Series(dtype=float)
+            _s = _df_w[_m].dropna() if not _df_w.empty and _m in _df_w.columns else pd.Series(dtype=float)
             if len(_s) >= 3:
                 _chart_label(_lbl, _s)
                 _f = go.Figure()
@@ -733,90 +906,129 @@ if page == "Dashboard":
                 st.plotly_chart(_f, width="stretch", config=_CFG)
 
     # ── ACTIVITY BREAKDOWN ──────────────────────────────────
-    _section("Activity Breakdown — 30 days")
-    _ab1, _ab2 = st.columns(2)
+    with st.expander(f"Activity Breakdown — {_range_opt}", expanded=True):
+        _ab1, _ab2 = st.columns(2)
 
-    with _ab1:
-        _aint_cfg = [
-            ("lightly_active_min", "Light",    "#4A90D9"),
-            ("fairly_active_min",  "Moderate", "#F59E0B"),
-            ("very_active_min",    "Intense",  "#EF4444"),
-        ]
-        _aint_any = not df_30.empty and any(c in df_30.columns for c, _, _ in _aint_cfg)
-        if _aint_any:
-            _chart_label("Activity Intensity (min/day)")
-            _aif = go.Figure()
-            for _c, _n, _clr in _aint_cfg:
-                if _c in df_30.columns:
-                    _aif.add_trace(go.Bar(
-                        x=df_30.index, y=df_30[_c].fillna(0), name=_n,
-                        marker_color=_clr,
-                        hovertemplate=f"{_n}: %{{y:.0f}} min<extra></extra>",
-                    ))
-            _aif.update_layout(**_CL, barmode="stack", height=220, bargap=0.15,
-                               legend=dict(orientation="h", y=1.18, x=0,
-                                           font=dict(size=10), bgcolor="rgba(0,0,0,0)"))
-            st.plotly_chart(_aif, width="stretch", config=_CFG)
-        else:
-            st.markdown("<div class='empty-panel'>Activity Intensity<br>No data yet.</div>",
-                        unsafe_allow_html=True)
+        with _ab1:
+            _aint_cfg = [
+                ("lightly_active_min", "Light",    "#4A90D9"),
+                ("fairly_active_min",  "Moderate", "#F59E0B"),
+                ("very_active_min",    "Intense",  "#EF4444"),
+            ]
+            _aint_any = not _df_w.empty and any(c in _df_w.columns for c, _, _ in _aint_cfg)
+            if _aint_any:
+                _chart_label("Activity Intensity (min/day)")
+                _aif = go.Figure()
+                for _c, _n, _clr in _aint_cfg:
+                    if _c in _df_w.columns:
+                        _aif.add_trace(go.Bar(
+                            x=_df_w.index, y=_df_w[_c].fillna(0), name=_n,
+                            marker_color=_clr,
+                            hovertemplate=f"{_n}: %{{y:.0f}} min<extra></extra>",
+                        ))
+                _aif.update_layout(**_CL, barmode="stack", height=220, bargap=0.15,
+                                   legend=dict(orientation="h", y=1.18, x=0,
+                                               font=dict(size=10), bgcolor="rgba(0,0,0,0)"))
+                st.plotly_chart(_aif, width="stretch", config=_CFG)
+            else:
+                st.markdown("<div class='empty-panel'>Activity Intensity<br>No data yet.</div>",
+                            unsafe_allow_html=True)
 
-    with _ab2:
-        _zone_cfg2 = [
-            ("time_in_fat_burn_min", "Fat Burn", "#F59E0B"),
-            ("time_in_cardio_min",   "Cardio",   "#EF4444"),
-            ("time_in_peak_min",     "Peak",     "#8B5CF6"),
-        ]
-        _zone_any2 = not df_30.empty and any(c in df_30.columns for c, _, _ in _zone_cfg2)
-        if _zone_any2:
-            _chart_label("HR Zones (min/day)")
-            _zf = go.Figure()
-            for _c, _n, _clr in _zone_cfg2:
-                if _c in df_30.columns:
-                    _zf.add_trace(go.Bar(
-                        x=df_30.index, y=df_30[_c].fillna(0), name=_n,
-                        marker_color=_clr,
-                        hovertemplate=f"{_n}: %{{y:.0f}} min<extra></extra>",
-                    ))
-            _zf.update_layout(**_CL, barmode="stack", height=220, bargap=0.15,
-                              legend=dict(orientation="h", y=1.18, x=0,
-                                          font=dict(size=10), bgcolor="rgba(0,0,0,0)"))
-            st.plotly_chart(_zf, width="stretch", config=_CFG)
-        else:
-            st.markdown("<div class='empty-panel'>HR Zones<br>No data yet.</div>",
-                        unsafe_allow_html=True)
+        with _ab2:
+            _zone_cfg2 = [
+                ("time_in_fat_burn_min", "Fat Burn", "#F59E0B"),
+                ("time_in_cardio_min",   "Cardio",   "#EF4444"),
+                ("time_in_peak_min",     "Peak",     "#8B5CF6"),
+            ]
+            _zone_any2 = not _df_w.empty and any(c in _df_w.columns for c, _, _ in _zone_cfg2)
+            if _zone_any2:
+                _chart_label("HR Zones (min/day)")
+                _zf = go.Figure()
+                for _c, _n, _clr in _zone_cfg2:
+                    if _c in _df_w.columns:
+                        _zf.add_trace(go.Bar(
+                            x=_df_w.index, y=_df_w[_c].fillna(0), name=_n,
+                            marker_color=_clr,
+                            hovertemplate=f"{_n}: %{{y:.0f}} min<extra></extra>",
+                        ))
+                _zf.update_layout(**_CL, barmode="stack", height=220, bargap=0.15,
+                                  legend=dict(orientation="h", y=1.18, x=0,
+                                              font=dict(size=10), bgcolor="rgba(0,0,0,0)"))
+                st.plotly_chart(_zf, width="stretch", config=_CFG)
+            else:
+                st.markdown("<div class='empty-panel'>HR Zones<br>No data yet.</div>",
+                            unsafe_allow_html=True)
 
     # ── STEPS WEEKLY HEATMAP ─────────────────────────────────
-    _section("Steps — Weekly Pattern")
-    _stps_s = _get_series("steps")
-    if len(_stps_s) >= 14:
-        _shm_df = _stps_s.reset_index()
-        _shm_df.columns = ["date", "steps"]
-        _shm_df["dow"]  = _shm_df["date"].dt.dayofweek
-        _iso             = _shm_df["date"].dt.isocalendar()
-        _shm_df["week"] = _iso.week.astype(int)
-        _shm_df["year"] = _iso.year.astype(int)
-        _shm_df["yw"]   = _shm_df.apply(
-            lambda r: f"{int(r['year'])}-W{int(r['week']):02d}", axis=1)
-        _pvt = _shm_df.pivot_table(values="steps", index="dow",
-                                    columns="yw", aggfunc="sum")
-        _pvt = _pvt.reindex(range(7))
-        _dlbl = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        _chart_label("Step count by day-of-week × calendar week (teal = more steps)")
-        _hmf = go.Figure(go.Heatmap(
-            z=_pvt.values, x=_pvt.columns.tolist(), y=_dlbl,
-            colorscale=[[0, "#161B22"], [0.3, "#1A4A6E"],
-                        [0.65, "#2DD4BF"], [1.0, "#A7F3D0"]],
-            showscale=False,
-            hovertemplate="%{x} %{y}: %{z:,.0f} steps<extra></extra>",
-        ))
-        _hmf.update_layout(**_CL, height=220)
-        _hmf.update_layout(margin=dict(l=40, r=16, t=30, b=20))
-        st.plotly_chart(_hmf, width="stretch", config=_CFG)
-    else:
-        st.markdown(
-            "<div class='empty-panel'>Weekly step pattern — need ≥14 days of data.</div>",
-            unsafe_allow_html=True)
+    with st.expander("Steps — Weekly Pattern", expanded=True):
+        _stps_s = _get_series("steps")
+        if len(_stps_s) >= 14:
+            _shm_df = _stps_s.reset_index()
+            _shm_df.columns = ["date", "steps"]
+            _shm_df["dow"]  = _shm_df["date"].dt.dayofweek
+            _iso             = _shm_df["date"].dt.isocalendar()
+            _shm_df["week"] = _iso.week.astype(int)
+            _shm_df["year"] = _iso.year.astype(int)
+            _shm_df["yw"]   = _shm_df.apply(
+                lambda r: f"{int(r['year'])}-W{int(r['week']):02d}", axis=1)
+            _pvt = _shm_df.pivot_table(values="steps", index="dow",
+                                        columns="yw", aggfunc="sum")
+            _pvt = _pvt.reindex(range(7))
+            _dlbl = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            _chart_label("Step count by day-of-week × calendar week (teal = more steps)")
+            _hmf = go.Figure(go.Heatmap(
+                z=_pvt.values, x=_pvt.columns.tolist(), y=_dlbl,
+                colorscale=[[0, "#161B22"], [0.3, "#1A4A6E"],
+                            [0.65, "#2DD4BF"], [1.0, "#A7F3D0"]],
+                showscale=False,
+                hovertemplate="%{x} %{y}: %{z:,.0f} steps<extra></extra>",
+            ))
+            _hmf.update_layout(**_CL, height=220)
+            _hmf.update_layout(margin=dict(l=40, r=16, t=30, b=20))
+            st.plotly_chart(_hmf, width="stretch", config=_CFG)
+        else:
+            st.markdown(
+                "<div class='empty-panel'>Weekly step pattern — need ≥14 days of data.</div>",
+                unsafe_allow_html=True)
+
+    # ── PERSONAL RECORDS ────────────────────────────────────
+    with st.expander("Personal Records", expanded=False):
+        _df_all_time = get_data(0)
+        _pr_rows = []
+        for _prc, _prl, _prd, _pru in [
+            ("hrv_ms",               "Best HRV",          "max", "ms"),
+            ("rhr_bpm",              "Lowest RHR",        "min", "bpm"),
+            ("steps",                "Most Steps",        "max", ""),
+            ("sleep_efficiency_pct", "Best Sleep Eff",    "max", "%"),
+            ("vo2_max",              "Best VO₂ Max",      "max", "mL/kg/min"),
+            ("sleep_duration_min",   "Longest Sleep",     "max", "h"),
+        ]:
+            _prs = pd.Series(dtype=float)
+            if not _df_all_time.empty and _prc in _df_all_time.columns:
+                _prs = _df_all_time[_prc].dropna()
+            elif not _sc_idx.empty and _prc in _sc_idx.columns:
+                _prs = _sc_idx[_prc].dropna()
+            if len(_prs) >= 1:
+                _prv = float(_prs.max() if _prd == "max" else _prs.min())
+                _prdt = _prs.idxmax() if _prd == "max" else _prs.idxmin()
+                _prcur = float(_prs.iloc[-1])
+                _prpct = _prcur / _prv * 100 if _prv != 0 else 0
+                _is_dur = _prc == "sleep_duration_min"
+                _prv_d  = f"{_prv/60:.1f}" if _is_dur else f"{_prv:.1f}"
+                _prc_d  = f"{_prcur/60:.1f}" if _is_dur else f"{_prcur:.1f}"
+                _pru2   = "h" if _is_dur else _pru
+                _pr_rows.append({
+                    "Metric":    _prl,
+                    "Best":      f"{_prv_d} {_pru2}".strip(),
+                    "Date":      pd.Timestamp(_prdt).strftime("%b %-d, %Y"),
+                    "Current":   f"{_prc_d} {_pru2}".strip(),
+                    "% of Best": f"{_prpct:.0f}%",
+                })
+        if _pr_rows:
+            st.dataframe(pd.DataFrame(_pr_rows), use_container_width=True, hide_index=True)
+        else:
+            st.markdown("<div class='empty-panel'>No records yet — keep logging.</div>",
+                        unsafe_allow_html=True)
 
     # ── INTELLIGENCE ────────────────────────────────────────
     _section("Intelligence")
