@@ -217,47 +217,74 @@ if page == "Dashboard":
     #MainMenu, footer, header { visibility: hidden; }
     [data-testid="stAppViewContainer"] { background: #0D1117; }
     [data-testid="stSidebar"] { background: #161B22 !important; border-right: 1px solid #21262D; }
-    .block-container { padding-top: 1.4rem; padding-bottom: 2rem; }
+    .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
     .dash-kpi-card {
-        background: #161B22; border: 1px solid #21262D; border-radius: 4px;
-        padding: 12px 10px 10px; text-align: center; min-height: 82px;
+        background: #161B22; border: 1px solid #21262D; border-radius: 6px;
+        padding: 14px 12px 12px; text-align: center; min-height: 86px;
+        transition: border-color 0.15s;
     }
     .dash-kpi-label {
-        font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 600;
-        letter-spacing: 0.10em; text-transform: uppercase; color: #484F58; margin-bottom: 5px;
+        font-family: 'IBM Plex Mono', monospace; font-size: 8.5px; font-weight: 600;
+        letter-spacing: 0.12em; text-transform: uppercase; color: #484F58; margin-bottom: 6px;
     }
     .dash-kpi-value {
-        font-family: 'IBM Plex Mono', monospace; font-size: 24px;
-        font-weight: 300; color: #E6EDF3; line-height: 1.15;
+        font-family: 'IBM Plex Mono', monospace; font-size: 26px;
+        font-weight: 300; color: #E6EDF3; line-height: 1.1;
     }
-    .dash-kpi-unit { font-size: 10px; color: #484F58; margin-left: 2px; }
-    .dash-kpi-delta { font-family: 'Inter', sans-serif; font-size: 10px; margin-top: 3px; }
+    .dash-kpi-unit { font-size: 10px; color: #6E7681; margin-left: 2px; }
+    .dash-kpi-delta { font-family: 'Inter', sans-serif; font-size: 10px; margin-top: 4px; }
     .dash-section {
-        font-family: 'Inter', sans-serif; font-size: 10px; font-weight: 600;
-        letter-spacing: 0.10em; text-transform: uppercase; color: #484F58;
-        margin: 22px 0 10px; padding-bottom: 8px; border-bottom: 1px solid #21262D;
+        font-family: 'Inter', sans-serif; font-size: 9.5px; font-weight: 700;
+        letter-spacing: 0.12em; text-transform: uppercase; color: #6E7681;
+        margin: 28px 0 12px; padding: 0 0 10px 10px;
+        border-bottom: 1px solid #21262D; border-left: 2px solid #30363D;
     }
     .dash-chart-label {
-        font-family: 'Inter', sans-serif; font-size: 11px;
-        font-weight: 500; color: #8B949E; margin-bottom: 2px;
+        font-family: 'Inter', sans-serif; font-size: 11.5px;
+        font-weight: 600; color: #8B949E; margin-bottom: 3px; letter-spacing: -0.01em;
     }
     .dash-stat-row {
-        font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: #484F58;
+        font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+        color: #484F58; font-weight: 400;
     }
     .finding-row {
-        background: #161B22; border: 1px solid #21262D; border-radius: 4px;
+        background: #161B22; border: 1px solid #21262D; border-radius: 6px;
         padding: 9px 12px; margin-bottom: 5px;
         display: flex; justify-content: space-between; align-items: center;
     }
     .exp-card {
         background: #161B22; border: 1px solid #21262D;
-        border-radius: 4px; padding: 10px 12px; margin-bottom: 6px;
+        border-radius: 6px; padding: 10px 12px; margin-bottom: 6px;
     }
     .empty-panel {
-        background: #161B22; border: 1px solid #21262D; border-radius: 4px;
-        padding: 24px; text-align: center;
+        background: #161B22; border: 1px solid #21262D; border-radius: 6px;
+        padding: 28px; text-align: center;
         color: #484F58; font-size: 12px; font-family: 'Inter', sans-serif;
     }
+    /* ── Timeframe segmented control ── */
+    .st-key-dash_range { margin-top: 2px; }
+    .st-key-dash_range [data-testid="stRadio"] > div[role="radiogroup"] {
+        display: inline-flex; gap: 0;
+        background: #0D1117; border: 1px solid #30363D; border-radius: 6px;
+        padding: 3px; float: right;
+    }
+    .st-key-dash_range label {
+        display: flex !important; align-items: center; justify-content: center;
+        padding: 5px 16px; border-radius: 4px; cursor: pointer;
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-size: 10.5px !important; font-weight: 500; letter-spacing: 0.02em;
+        color: #484F58 !important; transition: background 0.12s, color 0.12s;
+        white-space: nowrap; gap: 0 !important;
+    }
+    .st-key-dash_range label:has(input:checked) {
+        background: #21262D !important; color: #C9D1D9 !important;
+    }
+    .st-key-dash_range label:hover:not(:has(input:checked)) {
+        color: #8B949E !important;
+    }
+    .st-key-dash_range [data-baseweb="radio"] > div:first-child,
+    .st-key-dash_range [data-testid="stMarkdownContainer"] { display: none !important; }
+    .st-key-dash_range input[type="radio"] { position: absolute; opacity: 0; width: 0; height: 0; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -375,14 +402,23 @@ if page == "Dashboard":
         mean_v = series.mean()
         std_v  = series.std()
         fig    = go.Figure()
+        # Raw daily values — visible dots with a subtle outline ring
         fig.add_trace(go.Scatter(
             x=series.index, y=series.values, mode="markers",
-            marker=dict(color=color, size=3, opacity=0.3), showlegend=False,
+            marker=dict(
+                color=color, size=6, opacity=0.55,
+                line=dict(color=color, width=0),
+            ),
+            showlegend=False,
             hovertemplate="%{x|%b %-d}: %{y:.1f}<extra></extra>",
         ))
+        # 7-day rolling average — heavier line with small markers at each point
         fig.add_trace(go.Scatter(
-            x=roll.index, y=roll.values, mode="lines",
-            line=dict(color=color, width=2), fill="tozeroy", fillcolor=fill,
+            x=roll.index, y=roll.values, mode="lines+markers",
+            line=dict(color=color, width=2.5),
+            marker=dict(color=color, size=4, opacity=0.9,
+                        line=dict(color="#0D1117", width=1.5)),
+            fill="tozeroy", fillcolor=fill,
             showlegend=False,
             hovertemplate="%{x|%b %-d} (7d avg): %{y:.1f}<extra></extra>",
         ))
@@ -391,14 +427,14 @@ if page == "Dashboard":
             if len(_anom):
                 fig.add_trace(go.Scatter(
                     x=_anom.index, y=_anom.values, mode="markers",
-                    marker=dict(color="#F59E0B", size=7, symbol="circle-open",
+                    marker=dict(color="#F59E0B", size=9, symbol="circle-open",
                                 line=dict(width=2, color="#F59E0B")),
                     showlegend=False,
                     hovertemplate="%{x|%b %-d}: %{y:.1f} ⚠<extra></extra>",
                 ))
         if ref is not None:
-            fig.add_hline(y=ref, line_dash="dot", line_color="#30363D", line_width=1,
-                          annotation_text=rlabel, annotation_font_color="#484F58",
+            fig.add_hline(y=ref, line_dash="dot", line_color="#484F58", line_width=1,
+                          annotation_text=rlabel, annotation_font_color="#6E7681",
                           annotation_font_size=9)
         fig.update_layout(**_CL, height=height)
         return fig
@@ -603,7 +639,7 @@ if page == "Dashboard":
                 f"</div>", unsafe_allow_html=True)
 
     # ── VITAL SIGNS GAUGES ──────────────────────────────────
-    _section("Vital Signs — Current")
+    _section("Vital Signs — Yesterday")
     _gv1, _gv2, _gv3, _gv4 = st.columns(4)
 
     def _gauge_fig(label, value, min_v, max_v, unit, color_steps):
@@ -656,26 +692,6 @@ if page == "Dashboard":
                                 width="stretch", config=_CFG)
             else:
                 st.markdown(f"<div class='empty-panel'>{_glbl}<br>No data</div>",
-                            unsafe_allow_html=True)
-
-    # ── SCORE TRENDS ────────────────────────────────────────
-    _section("Score Trends — 90 days")
-    _sc1, _sc2 = st.columns(2)
-    for _col, _key, _lbl, _clr, _fill in [
-        (_sc1, "sleep_score", "Sleep Score", "#4A90D9", "rgba(74,144,217,0.10)"),
-        (_sc2, "heart_score", "Heart Score", "#2DD4BF", "rgba(45,212,191,0.10)"),
-    ]:
-        with _col:
-            _tr = (_sc_idx[_key].dropna().sort_index()
-                   if not _sc_idx.empty and _key in _sc_idx.columns
-                   else pd.Series(dtype=float))
-            if len(_tr) >= 3:
-                _chart_label(_lbl, _tr)
-                _f = _trend(_tr, _clr, _fill, height=175, ref=70, rlabel="70")
-                _f.update_layout(yaxis=dict(**_CL["yaxis"], range=[0, 100]))
-                st.plotly_chart(_f, width="stretch", config=_CFG)
-            else:
-                st.markdown("<div class='empty-panel'>No score history yet.</div>",
                             unsafe_allow_html=True)
 
     # ── TIMEFRAME SELECTOR ──────────────────────────────────
@@ -737,7 +753,7 @@ if page == "Dashboard":
         _s = _get_series("sleep_efficiency_pct")
         if len(_s) >= 3:
             _chart_label("Sleep Efficiency (%)", _s)
-            st.plotly_chart(_trend(_s, "#4A90D9", "rgba(74,144,217,0.08)",
+            st.plotly_chart(_trend(_s, "#4A90D9", "rgba(74,144,217,0.12)",
                                    height=180, ref=85, rlabel="85%"),
                             width="stretch", config=_CFG)
     with _se2:
@@ -785,16 +801,16 @@ if page == "Dashboard":
     _cv1, _cv2 = st.columns(2)
     _cv3, _cv4 = st.columns(2)
     for _col, _m, _lbl, _clr, _fill, _ref, _rl in [
-        (_cv1, "hrv_ms",           "HRV RMSSD (ms)",           "#2DD4BF", "rgba(45,212,191,0.08)",  None, ""),
-        (_cv2, "rhr_bpm",          "Resting Heart Rate (bpm)", "#EF4444", "rgba(239,68,68,0.08)",   None, ""),
-        (_cv3, "spo2_avg_pct",     "SpO₂ Average (%)",         "#7EC8A4", "rgba(126,200,164,0.08)", 95,   "95%"),
-        (_cv4, "respiratory_rate", "Respiratory Rate (br/min)","#F59E0B", "rgba(245,158,11,0.08)",  None, ""),
+        (_cv1, "hrv_ms",           "HRV RMSSD (ms)",           "#2DD4BF", "rgba(45,212,191,0.12)",  None, ""),
+        (_cv2, "rhr_bpm",          "Resting Heart Rate (bpm)", "#EF4444", "rgba(239,68,68,0.12)",   None, ""),
+        (_cv3, "spo2_avg_pct",     "SpO₂ Average (%)",         "#7EC8A4", "rgba(126,200,164,0.12)", 95,   "95%"),
+        (_cv4, "respiratory_rate", "Respiratory Rate (br/min)","#F59E0B", "rgba(245,158,11,0.12)",  None, ""),
     ]:
         with _col:
             _s = _get_series(_m)
             if len(_s) >= 3:
                 _chart_label(_lbl, _s)
-                st.plotly_chart(_trend(_s, _clr, _fill, height=200, ref=_ref, rlabel=_rl),
+                st.plotly_chart(_trend(_s, _clr, _fill, height=220, ref=_ref, rlabel=_rl),
                                 width="stretch", config=_CFG)
             else:
                 st.markdown(f"<div class='empty-panel'>{_lbl}<br>No data yet.</div>",
@@ -824,7 +840,7 @@ if page == "Dashboard":
         _vos = _get_series("vo2_max")
         if len(_vos) >= 3:
             _chart_label("VO₂ Max (mL/kg/min)", _vos)
-            st.plotly_chart(_trend(_vos, "#2DD4BF", "rgba(45,212,191,0.08)", height=200),
+            st.plotly_chart(_trend(_vos, "#2DD4BF", "rgba(45,212,191,0.12)", height=220),
                             width="stretch", config=_CFG)
         else:
             st.markdown("<div class='empty-panel'>VO₂ Max<br>No data yet.</div>",
@@ -835,8 +851,8 @@ if page == "Dashboard":
         if len(_seds) >= 3:
             _sedh = _seds / 60
             _chart_label("Sedentary Time (h)", _sedh)
-            st.plotly_chart(_trend(_sedh, "#F59E0B", "rgba(245,158,11,0.08)",
-                                   height=200, ref=8, rlabel="8h"),
+            st.plotly_chart(_trend(_sedh, "#F59E0B", "rgba(245,158,11,0.12)",
+                                   height=220, ref=8, rlabel="8h"),
                             width="stretch", config=_CFG)
         else:
             st.markdown("<div class='empty-panel'>Sedentary Time<br>No data yet.</div>",
