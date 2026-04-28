@@ -462,18 +462,26 @@ if page == "Dashboard":
     # ── TODAY AT A GLANCE ───────────────────────────────────
     def _recovery_score():
         pts = 50.0
+        # HRV: last night vs personal baseline — strongest recovery signal, ±30 pts
         _h = _get_series("hrv_ms")
         if len(_h) >= 14:
-            h7 = float(_h.iloc[-7:].mean()); hb = float(_h.mean())
-            if hb > 0: pts += (h7 / hb - 1) * 100
+            last_h = float(_h.iloc[-1])
+            base_h = float(_h.iloc[:-1].mean())  # exclude last night from baseline
+            if base_h > 0:
+                pts += max(-30, min(30, (last_h / base_h - 1) * 100))
+        # RHR: last night vs baseline — lower than usual = good, ±20 pts
         _r = _get_series("rhr_bpm")
         if len(_r) >= 14:
-            r7 = float(_r.iloc[-7:].mean()); rb = float(_r.mean())
-            if rb > 0: pts -= (r7 / rb - 1) * 100
+            last_r = float(_r.iloc[-1])
+            base_r = float(_r.iloc[:-1].mean())
+            if base_r > 0:
+                pts -= max(-20, min(20, (last_r / base_r - 1) * 100))
+        # Sleep efficiency: absolute pp diff from baseline, ±15 pts
         _e = _get_series("sleep_efficiency_pct")
         if len(_e) >= 14:
-            e7 = float(_e.iloc[-7:].mean()); eb = float(_e.mean())
-            if eb > 0: pts += (e7 / eb - 1) * 50
+            last_e = float(_e.iloc[-1])
+            base_e = float(_e.iloc[:-1].mean())
+            pts += max(-15, min(15, (last_e - base_e) * 1.5))
         return max(0, min(100, round(pts)))
 
     def _streak(col, threshold, direction="above"):
@@ -733,14 +741,18 @@ if page == "Dashboard":
 
     _se1, _se2 = st.columns(2)
     with _se1:
-        _s = _get_series("sleep_efficiency_pct")
+        _s = (_df_w["sleep_efficiency_pct"].dropna()
+              if not _df_w.empty and "sleep_efficiency_pct" in _df_w.columns
+              else pd.Series(dtype=float))
         if len(_s) >= 3:
             _chart_label("Sleep Efficiency (%)", _s)
             st.plotly_chart(_trend(_s, "#4A90D9", "rgba(74,144,217,0.12)",
                                    height=180, ref=85, rlabel="85%"),
                             width="stretch", config=_CFG)
     with _se2:
-        _raw = _get_series("sleep_duration_min")
+        _raw = (_df_w["sleep_duration_min"].dropna()
+                if not _df_w.empty and "sleep_duration_min" in _df_w.columns
+                else pd.Series(dtype=float))
         if len(_raw) >= 3:
             _sh = _raw / 60
             _chart_label("Sleep Duration (h)", _sh)
