@@ -412,7 +412,7 @@ if page == "Dashboard":
     else:
         _sc, _st = "#484F58", "No data"
 
-    _hc1, _hc2, _hc3 = st.columns([4, 2, 2])
+    _hc1, _hc3 = st.columns([6, 2])
     _hc1.markdown(
         "<span style='font-family:Inter;font-size:22px;font-weight:600;"
         "color:#E6EDF3;letter-spacing:-0.02em'>Cortex</span>"
@@ -420,8 +420,6 @@ if page == "Dashboard":
         f"margin-left:12px'>{today_str}</span>",
         unsafe_allow_html=True,
     )
-    _hc2.radio("", ["7 days", "30 days", "90 days"], index=1, horizontal=True,
-                key="dash_range", label_visibility="collapsed")
     _hc3.markdown(
         f"<div style='text-align:right;padding-top:4px'>"
         f"<span style='font-family:IBM Plex Mono,monospace;font-size:11px;"
@@ -686,6 +684,11 @@ if page == "Dashboard":
                 st.markdown("<div class='empty-panel'>No score history yet.</div>",
                             unsafe_allow_html=True)
 
+    # ── TIMEFRAME SELECTOR ──────────────────────────────────
+    _tr1, _tr2, _tr3 = st.columns([4, 2, 2])
+    _tr2.radio("", ["7 days", "30 days", "90 days"], index=1, horizontal=True,
+               key="dash_range", label_visibility="collapsed")
+
     # ── SLEEP ARCHITECTURE ──────────────────────────────────
     _section(f"Sleep Architecture — {_range_opt}")
     _sa1, _sa2 = st.columns([3, 1])
@@ -719,7 +722,7 @@ if page == "Dashboard":
         if not _df_w.empty and any(c in _df_w.columns for c in _scols):
             _avgs = _df_w[[c for c in _scols if c in _df_w.columns]].mean()
             if _avgs.sum() > 0:
-                _chart_label("30-Day Avg")
+                _chart_label(f"{_range_opt} Avg")
                 _f = go.Figure(go.Pie(
                     labels=["Deep", "REM", "Light", "Awake"],
                     values=[_avgs.get(c, 0) for c in _scols],
