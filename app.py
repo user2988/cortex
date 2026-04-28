@@ -261,41 +261,23 @@ if page == "Dashboard":
         padding: 28px; text-align: center;
         color: #484F58; font-size: 12px; font-family: 'Inter', sans-serif;
     }
-    /* ── Timeframe segmented control ── */
-    .st-key-dash_range { margin-top: 2px; }
-    .st-key-dash_range [data-testid="stRadio"] > div[role="radiogroup"] {
-        display: inline-flex; gap: 0;
-        background: #0D1117; border: 1px solid #30363D; border-radius: 6px;
-        padding: 3px; float: right;
+    /* ── Section sliders ── */
+    .st-key-sleep_days  [data-testid="stSlider"],
+    .st-key-cv_range    [data-testid="stSlider"],
+    .st-key-act_days    [data-testid="stSlider"] { padding-top: 6px; }
+    .st-key-sleep_days  p,
+    .st-key-cv_range    p,
+    .st-key-act_days    p {
+        font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+        font-weight: 600; letter-spacing: 0.10em; text-transform: uppercase;
+        color: #6E7681; margin-bottom: 2px;
     }
-    .st-key-dash_range label {
-        display: flex !important; align-items: center; justify-content: center;
-        padding: 5px 16px; border-radius: 4px; cursor: pointer;
-        font-family: 'IBM Plex Mono', monospace !important;
-        font-size: 10.5px !important; font-weight: 500; letter-spacing: 0.02em;
-        color: #484F58 !important; transition: background 0.12s, color 0.12s;
-        white-space: nowrap; gap: 0 !important;
-    }
-    .st-key-dash_range label:has(input:checked) {
-        background: #21262D !important; color: #C9D1D9 !important;
-    }
-    .st-key-dash_range label:hover:not(:has(input:checked)) {
-        color: #8B949E !important;
-    }
-    .st-key-dash_range [data-baseweb="radio"] > div:first-child,
-    .st-key-dash_range [data-testid="stMarkdownContainer"] { display: none !important; }
-    .st-key-dash_range input[type="radio"] { position: absolute; opacity: 0; width: 0; height: 0; }
     </style>
     """, unsafe_allow_html=True)
 
     # ── Data ────────────────────────────────────────────────
     scores      = get_daily_scores()
     df_all      = get_data(90)
-    _range_opt  = st.session_state.get("dash_range", "30 days")
-    _days_w = {"7 days": 7, "30 days": 30, "90 days": 90}.get(
-                  st.session_state.get("dash_range", "30 days"), 30)
-    _df_w   = (df_all[df_all.index >= df_all.index.max() - pd.Timedelta(days=_days_w - 1)]
-               if not df_all.empty else pd.DataFrame())
     findings_df = get_findings()
     exps_df     = get_experiments()
 
@@ -412,12 +394,10 @@ if page == "Dashboard":
             showlegend=False,
             hovertemplate="%{x|%b %-d}: %{y:.1f}<extra></extra>",
         ))
-        # 7-day rolling average — heavier line with small markers at each point
+        # 7-day rolling average — clean line, no per-point markers
         fig.add_trace(go.Scatter(
-            x=roll.index, y=roll.values, mode="lines+markers",
+            x=roll.index, y=roll.values, mode="lines",
             line=dict(color=color, width=2.5),
-            marker=dict(color=color, size=4, opacity=0.9,
-                        line=dict(color="#0D1117", width=1.5)),
             fill="tozeroy", fillcolor=fill,
             showlegend=False,
             hovertemplate="%{x|%b %-d} (7d avg): %{y:.1f}<extra></extra>",
@@ -694,13 +674,16 @@ if page == "Dashboard":
                 st.markdown(f"<div class='empty-panel'>{_glbl}<br>No data</div>",
                             unsafe_allow_html=True)
 
-    # ── TIMEFRAME SELECTOR ──────────────────────────────────
-    _tr1, _tr2, _tr3 = st.columns([4, 2, 2])
-    _tr2.radio("", ["7 days", "30 days", "90 days"], index=1, horizontal=True,
-               key="dash_range", label_visibility="collapsed")
-
     # ── SLEEP ARCHITECTURE ──────────────────────────────────
-    _section(f"Sleep Architecture — {_range_opt}")
+    _slsl1, _slsl2 = st.columns([6, 2])
+    _slsl1.markdown("<div class='dash-section'>Sleep Architecture</div>", unsafe_allow_html=True)
+    _sleep_days = _slsl2.select_slider(
+        "Sleep window", [7, 30, 90],
+        value=st.session_state.get("sleep_days", 30),
+        key="sleep_days", format_func=lambda d: f"{d}d",
+    )
+    _df_w = (df_all[df_all.index >= df_all.index.max() - pd.Timedelta(days=_sleep_days - 1)]
+             if not df_all.empty else pd.DataFrame())
     _sa1, _sa2 = st.columns([3, 1])
 
     _stage_cfg = [
@@ -732,7 +715,7 @@ if page == "Dashboard":
         if not _df_w.empty and any(c in _df_w.columns for c in _scols):
             _avgs = _df_w[[c for c in _scols if c in _df_w.columns]].mean()
             if _avgs.sum() > 0:
-                _chart_label(f"{_range_opt} Avg")
+                _chart_label(f"{_sleep_days}d Avg")
                 _f = go.Figure(go.Pie(
                     labels=["Deep", "REM", "Light", "Awake"],
                     values=[_avgs.get(c, 0) for c in _scols],
@@ -797,7 +780,21 @@ if page == "Dashboard":
             st.plotly_chart(_scf2, width="stretch", config=_CFG)
 
     # ── CARDIOVASCULAR ──────────────────────────────────────
-    _section("Cardiovascular — 90 days")
+    _cv_days_opts = [7, 14, 30, 60, 90]
+    _cvsl1, _cvsl2 = st.columns([6, 2])
+    _cvsl1.markdown("<div class='dash-section'>Cardiovascular</div>", unsafe_allow_html=True)
+    _cv_days = _cvsl2.select_slider(
+        "Cardiovascular window", _cv_days_opts,
+        value=st.session_state.get("cv_range", 90),
+        key="cv_range", format_func=lambda d: f"{d}d",
+        label_visibility="collapsed",
+    )
+
+    def _cv_series(col):
+        s = _get_series(col)
+        if s.empty: return s
+        return s[s.index >= s.index.max() - pd.Timedelta(days=_cv_days - 1)]
+
     _cv1, _cv2 = st.columns(2)
     _cv3, _cv4 = st.columns(2)
     for _col, _m, _lbl, _clr, _fill, _ref, _rl in [
@@ -807,7 +804,7 @@ if page == "Dashboard":
         (_cv4, "respiratory_rate", "Respiratory Rate (br/min)","#F59E0B", "rgba(245,158,11,0.12)",  None, ""),
     ]:
         with _col:
-            _s = _get_series(_m)
+            _s = _cv_series(_m)
             if len(_s) >= 3:
                 _chart_label(_lbl, _s)
                 st.plotly_chart(_trend(_s, _clr, _fill, height=220, ref=_ref, rlabel=_rl),
@@ -820,7 +817,7 @@ if page == "Dashboard":
     _cv5, _cv6, _cv7 = st.columns(3)
 
     with _cv5:
-        _rhr_h = _get_series("rhr_bpm")
+        _rhr_h = _cv_series("rhr_bpm")
         if len(_rhr_h) >= 5:
             _chart_label(f"RHR Distribution ({len(_rhr_h)} days)")
             _rhrf = go.Figure(go.Histogram(
@@ -837,7 +834,7 @@ if page == "Dashboard":
                         unsafe_allow_html=True)
 
     with _cv6:
-        _vos = _get_series("vo2_max")
+        _vos = _cv_series("vo2_max")
         if len(_vos) >= 3:
             _chart_label("VO₂ Max (mL/kg/min)", _vos)
             st.plotly_chart(_trend(_vos, "#2DD4BF", "rgba(45,212,191,0.12)", height=220),
@@ -847,7 +844,7 @@ if page == "Dashboard":
                         unsafe_allow_html=True)
 
     with _cv7:
-        _seds = _get_series("sedentary_min")
+        _seds = _cv_series("sedentary_min")
         if len(_seds) >= 3:
             _sedh = _seds / 60
             _chart_label("Sedentary Time (h)", _sedh)
@@ -859,11 +856,20 @@ if page == "Dashboard":
                         unsafe_allow_html=True)
 
     # ── ACTIVITY ────────────────────────────────────────────
-    _section(f"Activity — {_range_opt}")
+    _acsl1, _acsl2 = st.columns([6, 2])
+    _acsl1.markdown("<div class='dash-section'>Activity</div>", unsafe_allow_html=True)
+    _act_days = _acsl2.select_slider(
+        "Activity window", [7, 14, 30, 60, 90],
+        value=st.session_state.get("act_days", 30),
+        key="act_days", format_func=lambda d: f"{d}d",
+    )
+    _act_df = (df_all[df_all.index >= df_all.index.max() - pd.Timedelta(days=_act_days - 1)]
+               if not df_all.empty else pd.DataFrame())
+
     _act1, _act2 = st.columns([2, 1])
 
     with _act1:
-        _s = _df_w["steps"].dropna() if not _df_w.empty and "steps" in _df_w.columns else pd.Series(dtype=float)
+        _s = _act_df["steps"].dropna() if not _act_df.empty and "steps" in _act_df.columns else pd.Series(dtype=float)
         if len(_s) >= 3:
             _chart_label("Daily Steps", _s)
             _f = go.Figure()
@@ -883,8 +889,8 @@ if page == "Dashboard":
     with _act2:
         _zcols = ["time_in_fat_burn_min", "time_in_cardio_min",
                   "time_in_peak_min", "lightly_active_min"]
-        if not _df_w.empty and any(c in _df_w.columns for c in _zcols):
-            _zavg = _df_w[[c for c in _zcols if c in _df_w.columns]].mean()
+        if not _act_df.empty and any(c in _act_df.columns for c in _zcols):
+            _zavg = _act_df[[c for c in _zcols if c in _act_df.columns]].mean()
             if _zavg.sum() > 0:
                 _chart_label("Avg Activity Zones")
                 _f = go.Figure(go.Pie(
@@ -904,7 +910,7 @@ if page == "Dashboard":
         (_act4, "distance_km",     "Distance (km)",          "#7EC8A4", "rgba(126,200,164,0.08)"),
     ]:
         with _col:
-            _s = _df_w[_m].dropna() if not _df_w.empty and _m in _df_w.columns else pd.Series(dtype=float)
+            _s = _act_df[_m].dropna() if not _act_df.empty and _m in _act_df.columns else pd.Series(dtype=float)
             if len(_s) >= 3:
                 _chart_label(_lbl, _s)
                 _f = go.Figure()
@@ -919,7 +925,7 @@ if page == "Dashboard":
                 st.plotly_chart(_f, width="stretch", config=_CFG)
 
     # ── ACTIVITY BREAKDOWN ──────────────────────────────────
-    with st.expander(f"Activity Breakdown — {_range_opt}", expanded=True):
+    with st.expander(f"Activity Breakdown — {_act_days}d", expanded=True):
         _ab1, _ab2 = st.columns(2)
 
         with _ab1:
@@ -928,14 +934,14 @@ if page == "Dashboard":
                 ("fairly_active_min",  "Moderate", "#F59E0B"),
                 ("very_active_min",    "Intense",  "#EF4444"),
             ]
-            _aint_any = not _df_w.empty and any(c in _df_w.columns for c, _, _ in _aint_cfg)
+            _aint_any = not _act_df.empty and any(c in _act_df.columns for c, _, _ in _aint_cfg)
             if _aint_any:
                 _chart_label("Activity Intensity (min/day)")
                 _aif = go.Figure()
                 for _c, _n, _clr in _aint_cfg:
-                    if _c in _df_w.columns:
+                    if _c in _act_df.columns:
                         _aif.add_trace(go.Bar(
-                            x=_df_w.index, y=_df_w[_c].fillna(0), name=_n,
+                            x=_act_df.index, y=_act_df[_c].fillna(0), name=_n,
                             marker_color=_clr,
                             hovertemplate=f"{_n}: %{{y:.0f}} min<extra></extra>",
                         ))
@@ -953,14 +959,14 @@ if page == "Dashboard":
                 ("time_in_cardio_min",   "Cardio",   "#EF4444"),
                 ("time_in_peak_min",     "Peak",     "#8B5CF6"),
             ]
-            _zone_any2 = not _df_w.empty and any(c in _df_w.columns for c, _, _ in _zone_cfg2)
+            _zone_any2 = not _act_df.empty and any(c in _act_df.columns for c, _, _ in _zone_cfg2)
             if _zone_any2:
                 _chart_label("HR Zones (min/day)")
                 _zf = go.Figure()
                 for _c, _n, _clr in _zone_cfg2:
-                    if _c in _df_w.columns:
+                    if _c in _act_df.columns:
                         _zf.add_trace(go.Bar(
-                            x=_df_w.index, y=_df_w[_c].fillna(0), name=_n,
+                            x=_act_df.index, y=_act_df[_c].fillna(0), name=_n,
                             marker_color=_clr,
                             hovertemplate=f"{_n}: %{{y:.0f}} min<extra></extra>",
                         ))
