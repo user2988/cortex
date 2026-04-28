@@ -462,18 +462,26 @@ if page == "Dashboard":
     # ── TODAY AT A GLANCE ───────────────────────────────────
     def _recovery_score():
         pts = 50.0
+        # HRV: last night vs personal baseline — strongest recovery signal, ±30 pts
         _h = _get_series("hrv_ms")
         if len(_h) >= 14:
-            h7 = float(_h.iloc[-7:].mean()); hb = float(_h.mean())
-            if hb > 0: pts += (h7 / hb - 1) * 100
+            last_h = float(_h.iloc[-1])
+            base_h = float(_h.iloc[:-1].mean())  # exclude last night from baseline
+            if base_h > 0:
+                pts += max(-30, min(30, (last_h / base_h - 1) * 100))
+        # RHR: last night vs baseline — lower than usual = good, ±20 pts
         _r = _get_series("rhr_bpm")
         if len(_r) >= 14:
-            r7 = float(_r.iloc[-7:].mean()); rb = float(_r.mean())
-            if rb > 0: pts -= (r7 / rb - 1) * 100
+            last_r = float(_r.iloc[-1])
+            base_r = float(_r.iloc[:-1].mean())
+            if base_r > 0:
+                pts -= max(-20, min(20, (last_r / base_r - 1) * 100))
+        # Sleep efficiency: absolute pp diff from baseline, ±15 pts
         _e = _get_series("sleep_efficiency_pct")
         if len(_e) >= 14:
-            e7 = float(_e.iloc[-7:].mean()); eb = float(_e.mean())
-            if eb > 0: pts += (e7 / eb - 1) * 50
+            last_e = float(_e.iloc[-1])
+            base_e = float(_e.iloc[:-1].mean())
+            pts += max(-15, min(15, (last_e - base_e) * 1.5))
         return max(0, min(100, round(pts)))
 
     def _streak(col, threshold, direction="above"):
