@@ -321,17 +321,17 @@ if page == "Dashboard":
     # ── Helpers ─────────────────────────────────────────────
     def _windowed(col, days):
         """Return the best available series for col, trimmed to the last `days` days."""
-        s = _get_series(col)
+        s = _get_series(col).sort_index()
         if s.empty:
             return s
         return s[s.index >= s.index.max() - pd.Timedelta(days=days - 1)]
 
     def _latest(col):
-        s = _get_series(col)
+        s = _get_series(col).sort_index()
         return float(s.iloc[-1]) if len(s) else None
 
     def _delta(col):
-        s = _get_series(col)
+        s = _get_series(col).sort_index()
         if len(s) < 2: return None, "#484F58"
         d = float(s.iloc[-1]) - float(s.iloc[-2])
         return d, ("#10B981" if d > 0 else "#EF4444" if d < 0 else "#484F58")
@@ -377,7 +377,7 @@ if page == "Dashboard":
     def _chart_label(title, s=None):
         stat = ""
         if s is not None and len(s.dropna()) > 0:
-            c = s.dropna()
+            c = s.dropna().sort_index()
             stat = (f"&ensp;<span class='dash-stat-row'>"
                     f"now {c.iloc[-1]:.1f} &middot; "
                     f"min {c.min():.1f} &middot; "
@@ -470,21 +470,21 @@ if page == "Dashboard":
     def _recovery_score():
         pts = 50.0
         # HRV: last night vs personal baseline — strongest recovery signal, ±30 pts
-        _h = _get_series("hrv_ms")
+        _h = _get_series("hrv_ms").sort_index()
         if len(_h) >= 14:
             last_h = float(_h.iloc[-1])
             base_h = float(_h.iloc[:-1].mean())  # exclude last night from baseline
             if base_h > 0:
                 pts += max(-30, min(30, (last_h / base_h - 1) * 100))
         # RHR: last night vs baseline — lower than usual = good, ±20 pts
-        _r = _get_series("rhr_bpm")
+        _r = _get_series("rhr_bpm").sort_index()
         if len(_r) >= 14:
             last_r = float(_r.iloc[-1])
             base_r = float(_r.iloc[:-1].mean())
             if base_r > 0:
                 pts -= max(-20, min(20, (last_r / base_r - 1) * 100))
         # Sleep efficiency: absolute pp diff from baseline, ±15 pts
-        _e = _get_series("sleep_efficiency_pct")
+        _e = _get_series("sleep_efficiency_pct").sort_index()
         if len(_e) >= 14:
             last_e = float(_e.iloc[-1])
             base_e = float(_e.iloc[:-1].mean())
@@ -606,7 +606,7 @@ if page == "Dashboard":
     ]
     _rm_cols = st.columns(len(_rm_cfg))
     for _rmc, (_rmk, _rml, _rmu, _rminv) in zip(_rm_cols, _rm_cfg):
-        _rms = _get_series(_rmk)
+        _rms = _get_series(_rmk).sort_index()
         if len(_rms) >= 14:
             _r7  = float(_rms.iloc[-7:].mean())
             _r90 = float(_rms.mean())
@@ -806,7 +806,7 @@ if page == "Dashboard":
     )
 
     def _cv_series(col):
-        s = _get_series(col)
+        s = _get_series(col).sort_index()
         if s.empty: return s
         return s[s.index >= s.index.max() - pd.Timedelta(days=_cv_days - 1)]
 
