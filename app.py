@@ -733,8 +733,6 @@ if page == "Dashboard":
             _avgs = _df_w[[c for c in _scols if c in _df_w.columns]].mean()
             if _avgs.sum() > 0:
                 _chart_label(f"{_sleep_days}d Avg", n=len(_df_w.dropna(how="all")))
-                _dur_mean = _windowed("sleep_duration_min", _sleep_days)
-                _center_h = (_dur_mean.mean() / 60) if not _dur_mean.empty else (_avgs.sum() / 60)
                 _f = go.Figure(go.Pie(
                     labels=["Deep", "REM", "Light", "Awake"],
                     values=[_avgs.get(c, 0) for c in _scols],
@@ -743,10 +741,6 @@ if page == "Dashboard":
                     textfont=dict(size=9, family="IBM Plex Mono"),
                     hovertemplate="%{label}: %{value:.0f} min<extra></extra>",
                 ))
-                _f.add_annotation(
-                    text=f"{_center_h:.1f}h", x=0.5, y=0.5, showarrow=False,
-                    font=dict(size=15, family="IBM Plex Mono", color="#E6EDF3"),
-                )
                 _f.update_layout(**_CL, height=230, showlegend=False)
                 st.plotly_chart(_f, width="stretch", config=_CFG)
 
