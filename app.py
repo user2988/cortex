@@ -412,7 +412,7 @@ if page == "Dashboard":
     else:
         _sc, _st = "#484F58", "No data"
 
-    _hc1, _hc2, _hc3 = st.columns([4, 2, 2])
+    _hc1, _hc3 = st.columns([6, 2])
     _hc1.markdown(
         "<span style='font-family:Inter;font-size:22px;font-weight:600;"
         "color:#E6EDF3;letter-spacing:-0.02em'>Cortex</span>"
@@ -420,8 +420,6 @@ if page == "Dashboard":
         f"margin-left:12px'>{today_str}</span>",
         unsafe_allow_html=True,
     )
-    _hc2.radio("", ["7 days", "30 days", "90 days"], index=1, horizontal=True,
-                key="dash_range", label_visibility="collapsed")
     _hc3.markdown(
         f"<div style='text-align:right;padding-top:4px'>"
         f"<span style='font-family:IBM Plex Mono,monospace;font-size:11px;"
@@ -548,20 +546,14 @@ if page == "Dashboard":
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
     # ── KPI STRIP ───────────────────────────────────────────
-    _ss   = float(scores["sleep_score"].dropna().iloc[0]) if not scores.empty and not scores["sleep_score"].dropna().empty else None
-    _hs   = float(scores["heart_score"].dropna().iloc[0]) if not scores.empty and not scores["heart_score"].dropna().empty else None
-    _ssd  = (float(scores["sleep_score"].dropna().iloc[0]) - float(scores["sleep_score"].dropna().iloc[1])) if not scores.empty and len(scores["sleep_score"].dropna()) >= 2 else None
-    _hsd  = (float(scores["heart_score"].dropna().iloc[0]) - float(scores["heart_score"].dropna().iloc[1])) if not scores.empty and len(scores["heart_score"].dropna()) >= 2 else None
     _hrv_d, _hrv_dc   = _delta("hrv_ms")
     _rhr_d, _rhr_dc_r = _delta("rhr_bpm")
     _rhr_dc           = "#EF4444" if (_rhr_d or 0) > 0 else "#10B981" if (_rhr_d or 0) < 0 else "#484F58"
     _stps_d, _stps_dc = _delta("steps")
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-    _ks = st.columns(8)
+    _ks = st.columns(6)
     for _kc, _html in zip(_ks, [
-        _kpi("Sleep Score", _ss, "",    _ssd,   _score_color(_ss) if (_ssd or 0) > 0 else "#EF4444" if (_ssd or 0) < 0 else "#484F58", _score_color(_ss)),
-        _kpi("Heart Score", _hs, "",    _hsd,   _score_color(_hs) if (_hsd or 0) > 0 else "#EF4444" if (_hsd or 0) < 0 else "#484F58", _score_color(_hs)),
         _kpi("HRV RMSSD",  _latest("hrv_ms"),         "ms",  _hrv_d, _hrv_dc,  bg=_metric_bg("hrv_ms", _latest("hrv_ms"))),
         _kpi("Resting HR", _latest("rhr_bpm"),         "bpm", _rhr_d, _rhr_dc,  bg=_metric_bg("rhr_bpm", _latest("rhr_bpm"))),
         _kpi("SpO₂",       _latest("spo2_avg_pct"),    "%",   bg=_metric_bg("spo2_avg_pct", _latest("spo2_avg_pct"))),
@@ -686,6 +678,11 @@ if page == "Dashboard":
                 st.markdown("<div class='empty-panel'>No score history yet.</div>",
                             unsafe_allow_html=True)
 
+    # ── TIMEFRAME SELECTOR ──────────────────────────────────
+    _tr1, _tr2, _tr3 = st.columns([4, 2, 2])
+    _tr2.radio("", ["7 days", "30 days", "90 days"], index=1, horizontal=True,
+               key="dash_range", label_visibility="collapsed")
+
     # ── SLEEP ARCHITECTURE ──────────────────────────────────
     _section(f"Sleep Architecture — {_range_opt}")
     _sa1, _sa2 = st.columns([3, 1])
@@ -719,7 +716,7 @@ if page == "Dashboard":
         if not _df_w.empty and any(c in _df_w.columns for c in _scols):
             _avgs = _df_w[[c for c in _scols if c in _df_w.columns]].mean()
             if _avgs.sum() > 0:
-                _chart_label("30-Day Avg")
+                _chart_label(f"{_range_opt} Avg")
                 _f = go.Figure(go.Pie(
                     labels=["Deep", "REM", "Light", "Awake"],
                     values=[_avgs.get(c, 0) for c in _scols],
