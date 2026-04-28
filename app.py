@@ -741,14 +741,18 @@ if page == "Dashboard":
 
     _se1, _se2 = st.columns(2)
     with _se1:
-        _s = _get_series("sleep_efficiency_pct")
+        _s = (_df_w["sleep_efficiency_pct"].dropna()
+              if not _df_w.empty and "sleep_efficiency_pct" in _df_w.columns
+              else pd.Series(dtype=float))
         if len(_s) >= 3:
             _chart_label("Sleep Efficiency (%)", _s)
             st.plotly_chart(_trend(_s, "#4A90D9", "rgba(74,144,217,0.12)",
                                    height=180, ref=85, rlabel="85%"),
                             width="stretch", config=_CFG)
     with _se2:
-        _raw = _get_series("sleep_duration_min")
+        _raw = (_df_w["sleep_duration_min"].dropna()
+                if not _df_w.empty and "sleep_duration_min" in _df_w.columns
+                else pd.Series(dtype=float))
         if len(_raw) >= 3:
             _sh = _raw / 60
             _chart_label("Sleep Duration (h)", _sh)
