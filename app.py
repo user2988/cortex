@@ -319,6 +319,13 @@ if page == "Dashboard":
     _CFG = {"displayModeBar": False}
 
     # ── Helpers ─────────────────────────────────────────────
+    def _windowed(col, days):
+        """Return the best available series for col, trimmed to the last `days` days."""
+        s = _get_series(col)
+        if s.empty:
+            return s
+        return s[s.index >= s.index.max() - pd.Timedelta(days=days - 1)]
+
     def _latest(col):
         s = _get_series(col)
         return float(s.iloc[-1]) if len(s) else None
@@ -741,18 +748,14 @@ if page == "Dashboard":
 
     _se1, _se2 = st.columns(2)
     with _se1:
-        _s = (_df_w["sleep_efficiency_pct"].dropna()
-              if not _df_w.empty and "sleep_efficiency_pct" in _df_w.columns
-              else pd.Series(dtype=float))
+        _s = _windowed("sleep_efficiency_pct", _sleep_days)
         if len(_s) >= 3:
             _chart_label("Sleep Efficiency (%)", _s)
             st.plotly_chart(_trend(_s, "#4A90D9", "rgba(74,144,217,0.12)",
                                    height=180, ref=85, rlabel="85%"),
                             width="stretch", config=_CFG)
     with _se2:
-        _raw = (_df_w["sleep_duration_min"].dropna()
-                if not _df_w.empty and "sleep_duration_min" in _df_w.columns
-                else pd.Series(dtype=float))
+        _raw = _windowed("sleep_duration_min", _sleep_days)
         if len(_raw) >= 3:
             _sh = _raw / 60
             _chart_label("Sleep Duration (h)", _sh)
