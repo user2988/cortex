@@ -374,16 +374,18 @@ if page == "Dashboard":
     def _section(label):
         st.markdown(f"<div class='dash-section'>{label}</div>", unsafe_allow_html=True)
 
-    def _chart_label(title, s=None):
+    def _chart_label(title, s=None, n=None):
         stat = ""
         if s is not None and len(s.dropna()) > 0:
             c = s.dropna().sort_index()
+            n = len(c)
             stat = (f"&ensp;<span class='dash-stat-row'>"
                     f"now {c.iloc[-1]:.1f} &middot; "
                     f"min {c.min():.1f} &middot; "
                     f"avg {c.mean():.1f} &middot; "
                     f"max {c.max():.1f}</span>")
-        st.markdown(f"<div class='dash-chart-label'>{title}{stat}</div>",
+        nd = f"&ensp;<span class='dash-stat-row'>({n}d)</span>" if n is not None else ""
+        st.markdown(f"<div class='dash-chart-label'>{title}{nd}{stat}</div>",
                     unsafe_allow_html=True)
 
     def _trend(series, color, fill, height=190, ref=None, rlabel=""):
@@ -713,7 +715,7 @@ if page == "Dashboard":
         if not _df_w.empty and any(c in _df_w.columns for c in _scols):
             _sd = _df_w[[c for c in _scols if c in _df_w.columns]].dropna(how="all")
             if not _sd.empty:
-                _chart_label("Sleep Stage Breakdown (min)")
+                _chart_label("Sleep Stage Breakdown (min)", n=len(_sd))
                 _f = go.Figure()
                 for _c, _n, _clr in _stage_cfg:
                     if _c in _sd.columns:
@@ -730,7 +732,7 @@ if page == "Dashboard":
         if not _df_w.empty and any(c in _df_w.columns for c in _scols):
             _avgs = _df_w[[c for c in _scols if c in _df_w.columns]].mean()
             if _avgs.sum() > 0:
-                _chart_label(f"{_sleep_days}d Avg")
+                _chart_label(f"{_sleep_days}d Avg", n=len(_df_w.dropna(how="all")))
                 _f = go.Figure(go.Pie(
                     labels=["Deep", "REM", "Light", "Awake"],
                     values=[_avgs.get(c, 0) for c in _scols],
@@ -780,7 +782,7 @@ if page == "Dashboard":
         if len(_scd2) >= 5:
             _sct2 = _scd2.sum(axis=1).replace(0, np.nan)
             _scp2 = _scd2.div(_sct2, axis=0).fillna(0) * 100
-            _chart_label("Sleep Stage Composition (% of night)")
+            _chart_label("Sleep Stage Composition (% of night)", n=len(_scd2))
             _scf2 = go.Figure()
             for _c, _n, _clr in _stage_cfg:
                 if _c in _scp2.columns:
@@ -907,7 +909,7 @@ if page == "Dashboard":
         if not _act_df.empty and any(c in _act_df.columns for c in _zcols):
             _zavg = _act_df[[c for c in _zcols if c in _act_df.columns]].mean()
             if _zavg.sum() > 0:
-                _chart_label("Avg Activity Zones")
+                _chart_label("Avg Activity Zones", n=len(_act_df))
                 _f = go.Figure(go.Pie(
                     labels=["Fat Burn", "Cardio", "Peak", "Light"],
                     values=[_zavg.get(c, 0) for c in _zcols],
@@ -951,7 +953,7 @@ if page == "Dashboard":
             ]
             _aint_any = not _act_df.empty and any(c in _act_df.columns for c, _, _ in _aint_cfg)
             if _aint_any:
-                _chart_label("Activity Intensity (min/day)")
+                _chart_label("Activity Intensity (min/day)", n=len(_act_df))
                 _aif = go.Figure()
                 for _c, _n, _clr in _aint_cfg:
                     if _c in _act_df.columns:
@@ -976,7 +978,7 @@ if page == "Dashboard":
             ]
             _zone_any2 = not _act_df.empty and any(c in _act_df.columns for c, _, _ in _zone_cfg2)
             if _zone_any2:
-                _chart_label("HR Zones (min/day)")
+                _chart_label("HR Zones (min/day)", n=len(_act_df))
                 _zf = go.Figure()
                 for _c, _n, _clr in _zone_cfg2:
                     if _c in _act_df.columns:
@@ -1009,7 +1011,7 @@ if page == "Dashboard":
                                         columns="yw", aggfunc="sum")
             _pvt = _pvt.reindex(range(7))
             _dlbl = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-            _chart_label("Step count by day-of-week × calendar week (teal = more steps)")
+            _chart_label("Step count by day-of-week × calendar week (teal = more steps)", n=len(_stps_s))
             _hmf = go.Figure(go.Heatmap(
                 z=_pvt.values, x=_pvt.columns.tolist(), y=_dlbl,
                 colorscale=[[0, "#161B22"], [0.3, "#1A4A6E"],
