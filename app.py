@@ -261,6 +261,30 @@ if page == "Dashboard":
         padding: 28px; text-align: center;
         color: #484F58; font-size: 12px; font-family: 'Inter', sans-serif;
     }
+    /* ── Timeframe segmented control ── */
+    .st-key-dash_range { margin-top: 2px; }
+    .st-key-dash_range [data-testid="stRadio"] > div[role="radiogroup"] {
+        display: inline-flex; gap: 0;
+        background: #0D1117; border: 1px solid #30363D; border-radius: 6px;
+        padding: 3px; float: right;
+    }
+    .st-key-dash_range label {
+        display: flex !important; align-items: center; justify-content: center;
+        padding: 5px 16px; border-radius: 4px; cursor: pointer;
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-size: 10.5px !important; font-weight: 500; letter-spacing: 0.02em;
+        color: #484F58 !important; transition: background 0.12s, color 0.12s;
+        white-space: nowrap; gap: 0 !important;
+    }
+    .st-key-dash_range label:has(input:checked) {
+        background: #21262D !important; color: #C9D1D9 !important;
+    }
+    .st-key-dash_range label:hover:not(:has(input:checked)) {
+        color: #8B949E !important;
+    }
+    .st-key-dash_range [data-baseweb="radio"] > div:first-child,
+    .st-key-dash_range [data-testid="stMarkdownContainer"] { display: none !important; }
+    .st-key-dash_range input[type="radio"] { position: absolute; opacity: 0; width: 0; height: 0; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -615,7 +639,7 @@ if page == "Dashboard":
                 f"</div>", unsafe_allow_html=True)
 
     # ── VITAL SIGNS GAUGES ──────────────────────────────────
-    _section("Vital Signs — Current")
+    _section("Vital Signs — Yesterday")
     _gv1, _gv2, _gv3, _gv4 = st.columns(4)
 
     def _gauge_fig(label, value, min_v, max_v, unit, color_steps):
@@ -668,26 +692,6 @@ if page == "Dashboard":
                                 width="stretch", config=_CFG)
             else:
                 st.markdown(f"<div class='empty-panel'>{_glbl}<br>No data</div>",
-                            unsafe_allow_html=True)
-
-    # ── SCORE TRENDS ────────────────────────────────────────
-    _section("Score Trends — 90 days")
-    _sc1, _sc2 = st.columns(2)
-    for _col, _key, _lbl, _clr, _fill in [
-        (_sc1, "sleep_score", "Sleep Score", "#4A90D9", "rgba(74,144,217,0.13)"),
-        (_sc2, "heart_score", "Heart Score", "#2DD4BF", "rgba(45,212,191,0.13)"),
-    ]:
-        with _col:
-            _tr = (_sc_idx[_key].dropna().sort_index()
-                   if not _sc_idx.empty and _key in _sc_idx.columns
-                   else pd.Series(dtype=float))
-            if len(_tr) >= 3:
-                _chart_label(_lbl, _tr)
-                _f = _trend(_tr, _clr, _fill, height=175, ref=70, rlabel="70")
-                _f.update_layout(yaxis=dict(**_CL["yaxis"], range=[0, 100]))
-                st.plotly_chart(_f, width="stretch", config=_CFG)
-            else:
-                st.markdown("<div class='empty-panel'>No score history yet.</div>",
                             unsafe_allow_html=True)
 
     # ── TIMEFRAME SELECTOR ──────────────────────────────────
