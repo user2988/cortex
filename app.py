@@ -29,7 +29,7 @@ GRAD_OLD     = "rgba(120,120,120,0.35)"
 
 ANALYSIS_TYPES = [
     "Pearson Correlation", "Spearman Correlation", "Lagged Correlation",
-    "Rolling Average", "30-Day Trend (OLS)", "Multiple OLS Regression",
+    "Rolling Average", "Multiple OLS Regression", "30-Day Trend (OLS)",
     "Anomaly Detection", "Forecast (7-Day)", "Decomposition",
 ]
 SINGLE_VAR = {"30-Day Trend (OLS)", "Anomaly Detection", "Forecast (7-Day)", "Decomposition"}
@@ -924,8 +924,9 @@ if page == "Dashboard":
     with _int1:
         st.markdown("<div class='dash-chart-label'>Top Correlations</div>",
                     unsafe_allow_html=True)
-        if not findings_df.empty:
-            for _, _r in findings_df.sort_values("r_squared", ascending=False).head(6).iterrows():
+        _auto_findings = findings_df[~findings_df["pinned"].astype(bool)] if not findings_df.empty else findings_df
+        if not _auto_findings.empty:
+            for _, _r in _auto_findings.sort_values("r_squared", ascending=False).head(6).iterrows():
                 _a  = analysis.COL_LABELS.get(_r["variable_a"], _r["variable_a"])
                 _b  = analysis.COL_LABELS.get(_r["variable_b"], _r["variable_b"]) if _r["variable_b"] else "—"
                 _r2 = float(_r["r_squared"])
@@ -1284,14 +1285,14 @@ if page == "Explorer":
     elif analysis_type in MULTI_PRED:
         _cl, _cr = st.columns([3, 2])
         with _cl:
-            st.markdown("**Variable A**")
+            st.markdown("**VARIABLE A — Input / Driver**")
             _a_cat = st.selectbox("", A_CATS, key="ols_a_cat", label_visibility="collapsed")
             _a_sub = st.selectbox("", A_SUBS[_a_cat], key=f"ols_a_sub_{_a_cat}", label_visibility="collapsed")
             _ag = f"{_a_cat}  ·  {_a_sub}"
             predictors = st.multiselect("", VAR_A_TREE[_ag], default=VAR_A_TREE[_ag][:1],
                                         key=f"ols_preds_{_ag}", label_visibility="collapsed")
         with _cr:
-            outcome = _picker("ols_b", B_CATS, B_SUBS, VAR_B_TREE, "Variable B")
+            outcome = _picker("ols_b", B_CATS, B_SUBS, VAR_B_TREE, "VARIABLE B — Output / Target")
         outcome_label = col_label(outcome)
         var_a = var_b = None
 
