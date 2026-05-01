@@ -109,8 +109,6 @@ def get_findings():
 def get_experiments():
     return analysis.load_experiments()
 
-
-
 @st.cache_data(ttl=300)
 def get_daily_scores():
     return analysis.load_daily_scores(days=90)
