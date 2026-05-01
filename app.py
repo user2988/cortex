@@ -1274,6 +1274,29 @@ if page == "Explorer":
 
     run_clicked = st.sidebar.button("Run Analysis", type="primary", use_container_width=True)
 
+    _saved = get_findings()
+    _saved = _saved[_saved["pinned"].astype(bool)] if not _saved.empty else pd.DataFrame()
+
+    if not _saved.empty:
+        st.sidebar.divider()
+        st.sidebar.markdown("**Saved Analyses**")
+        for _, _srow in _saved.iterrows():
+            _sid  = int(_srow["id"])
+            _s_a  = _srow["variable_a"]; _s_b = _srow["variable_b"]
+            _s_name = (f"{analysis.COL_LABELS.get(_s_a, _s_a)} → {analysis.COL_LABELS.get(_s_b, _s_b)}"
+                       if _s_b else analysis.COL_LABELS.get(_s_a, _s_a))
+            _sb1, _sb2 = st.sidebar.columns([5, 1])
+            if _sb1.button(_s_name, key=f"sv_view_{_sid}", use_container_width=True):
+                st.session_state.saved_view_id = _sid
+                st.session_state.result = None
+                st.rerun()
+            if _sb2.button("✕", key=f"sv_del_{_sid}"):
+                analysis.delete_finding(_sid)
+                get_findings.clear()
+                if st.session_state.saved_view_id == _sid:
+                    st.session_state.saved_view_id = None
+                st.rerun()
+
     st.title("Explorer")
 
     if analysis_type in SINGLE_VAR:
@@ -1333,37 +1356,6 @@ if page == "Explorer":
             "predictors": locals().get("predictors"), "outcome": locals().get("outcome"),
             "outcome_label": col_label(outcome) if locals().get("outcome") else None,
         }
-
-    # ── Saved Analyses ───────────────────────────────────────────
-    _saved = get_findings()
-    _saved = _saved[_saved["pinned"].astype(bool)] if not _saved.empty else pd.DataFrame()
-
-    if not _saved.empty:
-        st.markdown("#### Saved Analyses")
-        for _, srow in _saved.iterrows():
-            sid = int(srow["id"])
-            s_a = srow["variable_a"]; s_b = srow["variable_b"]
-            s_r2 = float(srow["r_squared"]) if srow["r_squared"] is not None else 0
-            s_atype = srow["analysis_type"]
-            s_date  = pd.Timestamp(srow["calculated_at"]).strftime("%Y-%m-%d")
-            s_name  = f"{s_a} → {s_b}" if s_b else s_a
-
-            with st.container(border=True):
-                rc1, rc2, rc3 = st.columns([5, 2, 2])
-                rc1.markdown(f"**{s_name}**  \n{s_atype} · {s_date}")
-                rc2.metric("R²", f"{s_r2:.3f}")
-                bc1, bc2 = rc3.columns(2)
-                if bc1.button("View", key=f"sv_view_{sid}"):
-                    st.session_state.saved_view_id = sid
-                    st.session_state.result = None
-                    st.rerun()
-                if bc2.button("✕", key=f"sv_del_{sid}"):
-                    analysis.delete_finding(sid)
-                    get_findings.clear()
-                    if st.session_state.saved_view_id == sid:
-                        st.session_state.saved_view_id = None
-                    st.rerun()
-        st.divider()
 
     # ── Saved analysis replay ─────────────────────────────────────
     if st.session_state.saved_view_id is not None:
