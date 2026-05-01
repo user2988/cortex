@@ -1273,11 +1273,9 @@ if page == "Explorer":
     st.title("Explorer")
 
     if analysis_type in SINGLE_VAR:
-        _cl, _cr = st.columns(2)
+        _cl, _ = st.columns(2)
         with _cl:
-            var_a = _picker("sv_a", A_CATS, A_SUBS, VAR_A_TREE, "Variable A")
-        with _cr:
-            _picker("sv_b", B_CATS, B_SUBS, VAR_B_TREE, "Variable B")
+            var_a = _picker("sv_a", ALL_CATS, ALL_SUBS, VAR_TREE, "Variable")
         var_b = predictors = outcome = outcome_label = None
 
     elif analysis_type in MULTI_PRED:
