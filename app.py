@@ -1105,6 +1105,39 @@ if page == "Insights":
     # ══════════════════════════════════════════════════════════
     # SCORES — two columns
     # ══════════════════════════════════════════════════════════
+    _comp_hints = {
+        "Duration":   "how long you slept",
+        "Deep %":     "deep/restorative sleep",
+        "REM %":      "dream-stage sleep",
+        "Efficiency": "time asleep vs time in bed",
+        "HRV":        "heart rate variability (recovery)",
+        "Resting HR": "resting heart rate",
+        "SpO₂":       "blood oxygen level",
+    }
+
+    def _score_blurb(score, comp_data, comp_labels, comp_cols):
+        if score >= 70:
+            level = "better than most of your recent nights"
+        elif score >= 45:
+            level = "close to your personal average"
+        else:
+            level = "below your recent average"
+
+        valid = [(lbl, float(comp_data[c])) for lbl, c in zip(comp_labels, comp_cols)
+                 if pd.notna(comp_data.get(c))]
+        driver = ""
+        if valid:
+            worst_lbl, worst_val = min(valid, key=lambda x: x[1])
+            best_lbl,  best_val  = max(valid, key=lambda x: x[1])
+            hint = _comp_hints.get(worst_lbl, worst_lbl.lower())
+            if worst_val < 35:
+                driver = f" Low {worst_lbl.lower()} ({hint}) is the main drag."
+            elif best_val >= 80 and worst_val >= 60:
+                hint2 = _comp_hints.get(best_lbl, best_lbl.lower())
+                driver = f" Strong {best_lbl.lower()} ({hint2}) is leading the way."
+
+        return f"Scores compare last night against your own last 30 nights — 50 means average for you.{driver}"
+
     col_sleep, col_heart = st.columns(2)
 
     for col, score_col, comp_cols, comp_labels, title, icon in [
@@ -1144,6 +1177,8 @@ if page == "Insights":
 
                 # Component bar chart
                 comp_data = scores[comp_cols].dropna(how="all").iloc[0]
+
+                st.caption(_score_blurb(latest_score, comp_data, comp_labels, comp_cols))
                 valid_comps = [(lbl, float(comp_data[col]))
                                for lbl, col in zip(comp_labels, comp_cols)
                                if pd.notna(comp_data[col])]
