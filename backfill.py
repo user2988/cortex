@@ -1,12 +1,13 @@
 """
 Cortex — Biometric Backfill
-Fetches the past BACKFILL_DAYS of Fitbit data and writes any missing values
-to PostgreSQL. Existing non-null values are never overwritten (COALESCE upsert).
+Fetches historical Fitbit data and upserts it into PostgreSQL, always
+preferring the latest API value over what is stored (fresh data wins).
 
 Runs nightly via GitHub Actions after the daily pipeline.
 Can also be triggered manually via workflow_dispatch.
 """
 
+import argparse
 import time
 from datetime import date, timedelta
 
@@ -15,13 +16,13 @@ from cortex import FitbitAuth, FitbitClient, store_biometrics
 BACKFILL_DAYS = 14
 
 
-def run_backfill():
+def run_backfill(days=BACKFILL_DAYS):
     auth   = FitbitAuth()
     client = FitbitClient(auth)
 
     today = date.today()
 
-    for i in range(1, BACKFILL_DAYS + 1):
+    for i in range(1, days + 1):
         record_date = today - timedelta(days=i)
         sleep_date  = today - timedelta(days=i - 1)  # Fitbit keys sleep to wake-up date (D+1)
 
@@ -61,4 +62,8 @@ def run_backfill():
 
 
 if __name__ == "__main__":
-    run_backfill()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--days", type=int, default=BACKFILL_DAYS,
+                        help="How many days back to backfill (default: 14)")
+    args = parser.parse_args()
+    run_backfill(args.days)

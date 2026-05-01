@@ -1,10 +1,15 @@
-name: Fitbit Backfill (14 days)
+name: Fitbit Backfill
 
 on:
   schedule:
     - cron: '0 3 * * *'   # 11:00pm EDT (UTC-4, Mar–Nov)
     # - cron: '0 4 * * *' # 11:00pm EST (UTC-5, Nov–Mar)
   workflow_dispatch:
+    inputs:
+      days:
+        description: 'How many days back to backfill'
+        required: false
+        default: '14'
 
 jobs:
   backfill:
@@ -29,7 +34,7 @@ jobs:
           FITBIT_CLIENT_ID:     ${{ secrets.FITBIT_CLIENT_ID }}
           FITBIT_CLIENT_SECRET: ${{ secrets.FITBIT_CLIENT_SECRET }}
           DATABASE_URL:         ${{ secrets.DATABASE_URL }}
-        run: python backfill.py
+        run: python backfill.py --days ${{ inputs.days || 14 }}
 
       - name: Save updated Fitbit tokens
         if: always()
