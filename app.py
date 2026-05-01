@@ -1172,7 +1172,7 @@ if page == "Experiments":
 
             with st.form("new_exp"):
                 name = st.text_input("Hypothesis / name",
-                                     placeholder="e.g. Active minutes impact on deep sleep")
+                                     placeholder="e.g. active minutes impact on deep sleep")
                 c3, c4, c5 = st.columns(3)
                 lag    = c3.selectbox("Lag (days)", [0, 1, 2, 3])
                 method = c4.radio("Method", ["pearson", "spearman"], horizontal=True)
