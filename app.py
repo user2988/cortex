@@ -579,6 +579,7 @@ if page == "Dashboard":
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
     # ── KPI STRIP ───────────────────────────────────────────
+    _section("Yesterday's Stats")
     _hrv_d, _hrv_dc   = _delta("hrv_ms")
     _rhr_d, _rhr_dc_r = _delta("rhr_bpm")
     _rhr_dc           = "#EF4444" if (_rhr_d or 0) > 0 else "#10B981" if (_rhr_d or 0) < 0 else "#484F58"
@@ -592,7 +593,7 @@ if page == "Dashboard":
         _kpi("SpO₂",       _latest("spo2_avg_pct"),    "%",   bg=_metric_bg("spo2_avg_pct", _latest("spo2_avg_pct"))),
         _kpi("Steps",      _latest("steps"),           "",    _stps_d, _stps_dc, bg=_metric_bg("steps", _latest("steps"))),
         _kpi("Active Min", _latest("active_zone_min"), "min", bg=_metric_bg("active_zone_min", _latest("active_zone_min"))),
-        _kpi("Calories",    _latest("calories_burned"),  "kcal"),
+        _kpi("Calories Burnt", _latest("calories_burned"), "kcal"),
     ]):
         _kc.markdown(_html, unsafe_allow_html=True)
 
@@ -604,7 +605,7 @@ if page == "Dashboard":
         ("spo2_avg_pct",         "SpO₂",        "%",    False),
         ("steps",                "Steps",       "",     False),
         ("sleep_efficiency_pct", "Sleep Eff",   "%",    False),
-        ("calories_burned",      "Calories",    "kcal", False),
+        ("calories_burned",      "Calories Burnt", "kcal", False),
     ]
     _rm_cols = st.columns(len(_rm_cfg))
     for _rmc, (_rmk, _rml, _rmu, _rminv) in zip(_rm_cols, _rm_cfg):
