@@ -36,18 +36,15 @@ SINGLE_VAR = {"30-Day Trend (OLS)", "Anomaly Detection", "Forecast (7-Day)", "De
 MULTI_PRED = {"Multiple OLS Regression"}
 
 # ── Variable taxonomy ────────────────────────────────────────
-# Keys: "Category  ·  Subcategory"  Values: list of column names (shown raw)
+# Single unified tree — all variables available on either side of any analysis
 
-VAR_A_TREE = {
-    "Activity  ·  Volume":       ["steps", "distance_km", "calories_burned",
-                                   "sedentary_min", "lightly_active_min"],
-    "Activity  ·  Intensity":    ["active_zone_min", "very_active_min",
-                                   "fairly_active_min"],
-    "Activity  ·  Zones":        ["time_in_fat_burn_min", "time_in_cardio_min",
-                                   "time_in_peak_min"],
-}
-
-VAR_B_TREE = {
+VAR_TREE = {
+    "Activity  ·  Volume":            ["steps", "distance_km", "calories_burned",
+                                        "sedentary_min", "lightly_active_min"],
+    "Activity  ·  Intensity":         ["active_zone_min", "very_active_min",
+                                        "fairly_active_min"],
+    "Activity  ·  Zones":             ["time_in_fat_burn_min", "time_in_cardio_min",
+                                        "time_in_peak_min"],
     "Sleep  ·  Primary":              ["sleep_efficiency_pct", "sleep_duration_min"],
     "Sleep  ·  Architecture":         ["deep_sleep_min", "rem_sleep_min",
                                         "light_sleep_min", "awake_min"],
@@ -57,27 +54,30 @@ VAR_B_TREE = {
     "Cardiovascular  ·  Respiratory": ["respiratory_rate", "vo2_max"],
 }
 
+VAR_A_TREE = VAR_TREE
+VAR_B_TREE = VAR_TREE
+
 def _flat_cols(tree):
-    """All column names across a tree."""
     out = []
     for cols in tree.values(): out.extend(cols)
     return out
 
-VAR_A_COLS = _flat_cols(VAR_A_TREE)
-VAR_B_COLS = _flat_cols(VAR_B_TREE)
+VAR_A_COLS = _flat_cols(VAR_TREE)
+VAR_B_COLS = VAR_A_COLS
 
 def col_label(col):
     return analysis.COL_LABELS.get(col, col)
 
-A_CATS = ["Activity"]
-A_SUBS = {
-    "Activity":  ["Volume", "Intensity", "Zones"],
+ALL_CATS = ["Activity", "Sleep", "Cardiovascular"]
+ALL_SUBS = {
+    "Activity":      ["Volume", "Intensity", "Zones"],
+    "Sleep":         ["Primary", "Architecture", "Behavioural"],
+    "Cardiovascular":["Heart", "Oxygen", "Respiratory"],
 }
-B_CATS = ["Sleep", "Cardiovascular"]
-B_SUBS = {
-    "Sleep":          ["Primary", "Architecture", "Behavioural"],
-    "Cardiovascular": ["Heart", "Oxygen", "Respiratory"],
-}
+A_CATS = ALL_CATS
+A_SUBS = ALL_SUBS
+B_CATS = ALL_CATS
+B_SUBS = ALL_SUBS
 
 def _picker(panel_id, cats, subs_map, tree, header):
     """Category → Subcategory → Variable. Returns chosen column name."""
@@ -1158,12 +1158,12 @@ if page == "Experiments":
             # Variable pickers outside the form (cascading selectboxes need reruns)
             ec1, ec2 = st.columns(2)
             with ec1:
-                _ea_cat = st.selectbox("VARIABLE A — Input / Driver", A_CATS, key="exp_a_cat")
+                _ea_cat = st.selectbox("Variable A", A_CATS, key="exp_a_cat")
                 _ea_sub = st.selectbox("", A_SUBS[_ea_cat], key=f"exp_a_sub_{_ea_cat}", label_visibility="collapsed")
                 _ea_grp = f"{_ea_cat}  ·  {_ea_sub}"
                 st.selectbox("", VAR_A_TREE[_ea_grp], key=f"exp_a_var_{_ea_grp}", label_visibility="collapsed")
             with ec2:
-                _eb_cat = st.selectbox("VARIABLE B — Output / Target", B_CATS, key="exp_b_cat")
+                _eb_cat = st.selectbox("Variable B", B_CATS, key="exp_b_cat")
                 _eb_sub = st.selectbox("", B_SUBS[_eb_cat], key=f"exp_b_sub_{_eb_cat}", label_visibility="collapsed")
                 _eb_grp = f"{_eb_cat}  ·  {_eb_sub}"
                 st.selectbox("", VAR_B_TREE[_eb_grp], key=f"exp_b_var_{_eb_grp}", label_visibility="collapsed")
@@ -1275,31 +1275,31 @@ if page == "Explorer":
     if analysis_type in SINGLE_VAR:
         _cl, _cr = st.columns(2)
         with _cl:
-            var_a = _picker("sv_a", A_CATS, A_SUBS, VAR_A_TREE, "VARIABLE A — Input / Driver")
+            var_a = _picker("sv_a", A_CATS, A_SUBS, VAR_A_TREE, "Variable A")
         with _cr:
-            _picker("sv_b", B_CATS, B_SUBS, VAR_B_TREE, "Or pick an Output variable")
+            _picker("sv_b", B_CATS, B_SUBS, VAR_B_TREE, "Variable B")
         var_b = predictors = outcome = outcome_label = None
 
     elif analysis_type in MULTI_PRED:
         _cl, _cr = st.columns([3, 2])
         with _cl:
-            st.markdown("**VARIABLE A — Input / Driver**")
+            st.markdown("**Variable A**")
             _a_cat = st.selectbox("", A_CATS, key="ols_a_cat", label_visibility="collapsed")
             _a_sub = st.selectbox("", A_SUBS[_a_cat], key=f"ols_a_sub_{_a_cat}", label_visibility="collapsed")
             _ag = f"{_a_cat}  ·  {_a_sub}"
             predictors = st.multiselect("", VAR_A_TREE[_ag], default=VAR_A_TREE[_ag][:1],
                                         key=f"ols_preds_{_ag}", label_visibility="collapsed")
         with _cr:
-            outcome = _picker("ols_b", B_CATS, B_SUBS, VAR_B_TREE, "VARIABLE B — Output / Target")
+            outcome = _picker("ols_b", B_CATS, B_SUBS, VAR_B_TREE, "Variable B")
         outcome_label = col_label(outcome)
         var_a = var_b = None
 
     else:
         _cl, _cr = st.columns(2)
         with _cl:
-            var_a = _picker("a", A_CATS, A_SUBS, VAR_A_TREE, "VARIABLE A — Input / Driver")
+            var_a = _picker("a", A_CATS, A_SUBS, VAR_A_TREE, "Variable A")
         with _cr:
-            var_b = _picker("b", B_CATS, B_SUBS, VAR_B_TREE, "VARIABLE B — Output / Target")
+            var_b = _picker("b", B_CATS, B_SUBS, VAR_B_TREE, "Variable B")
         predictors = outcome = outcome_label = None
 
     st.divider()
