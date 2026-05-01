@@ -29,7 +29,7 @@ GRAD_OLD     = "rgba(120,120,120,0.35)"
 
 ANALYSIS_TYPES = [
     "Pearson Correlation", "Spearman Correlation", "Lagged Correlation",
-    "Rolling Average", "30-Day Trend (OLS)", "Multiple OLS Regression",
+    "Rolling Average", "Multiple OLS Regression", "30-Day Trend (OLS)",
     "Anomaly Detection", "Forecast (7-Day)", "Decomposition",
 ]
 SINGLE_VAR = {"30-Day Trend (OLS)", "Anomaly Detection", "Forecast (7-Day)", "Decomposition"}
@@ -1284,14 +1284,14 @@ if page == "Explorer":
     elif analysis_type in MULTI_PRED:
         _cl, _cr = st.columns([3, 2])
         with _cl:
-            st.markdown("**Variable A**")
+            st.markdown("**VARIABLE A — Input / Driver**")
             _a_cat = st.selectbox("", A_CATS, key="ols_a_cat", label_visibility="collapsed")
             _a_sub = st.selectbox("", A_SUBS[_a_cat], key=f"ols_a_sub_{_a_cat}", label_visibility="collapsed")
             _ag = f"{_a_cat}  ·  {_a_sub}"
             predictors = st.multiselect("", VAR_A_TREE[_ag], default=VAR_A_TREE[_ag][:1],
                                         key=f"ols_preds_{_ag}", label_visibility="collapsed")
         with _cr:
-            outcome = _picker("ols_b", B_CATS, B_SUBS, VAR_B_TREE, "Variable B")
+            outcome = _picker("ols_b", B_CATS, B_SUBS, VAR_B_TREE, "VARIABLE B — Output / Target")
         outcome_label = col_label(outcome)
         var_a = var_b = None
 
