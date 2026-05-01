@@ -635,62 +635,6 @@ if page == "Dashboard":
                 f"<div style='font-family:IBM Plex Mono,monospace;font-size:12px;color:#484F58'>—</div>"
                 f"</div>", unsafe_allow_html=True)
 
-    # ── VITAL SIGNS GAUGES ──────────────────────────────────
-    _section("Vital Signs — Yesterday")
-    _gv1, _gv2, _gv3, _gv4 = st.columns(4)
-
-    def _gauge_fig(label, value, min_v, max_v, unit, color_steps):
-        _gval = value if value is not None else min_v
-        _gc = "#484F58"
-        for _thr, _c in color_steps:
-            if _gval >= _thr:
-                _gc = _c
-        _fig_g = go.Figure(go.Indicator(
-            mode="gauge+number",
-            value=_gval,
-            number=dict(
-                suffix=f" {unit}" if unit else "",
-                font=dict(family="IBM Plex Mono, monospace", size=20, color="#E6EDF3"),
-            ),
-            title=dict(text=label,
-                       font=dict(family="Inter, sans-serif", size=10, color="#484F58")),
-            gauge=dict(
-                axis=dict(range=[min_v, max_v], tickwidth=1, tickcolor="#30363D",
-                          tickfont=dict(size=8, family="IBM Plex Mono, monospace",
-                                        color="#484F58"),
-                          nticks=5),
-                bar=dict(color=_gc, thickness=0.65),
-                bgcolor="rgba(0,0,0,0)",
-                borderwidth=1, bordercolor="#21262D",
-                steps=[dict(range=[min_v, max_v], color="rgba(255,255,255,0.03)")],
-                threshold=dict(line=dict(color="#E6EDF3", width=2),
-                               thickness=0.75, value=_gval),
-            ),
-        ))
-        _cll = {k: v for k, v in _CL.items() if k != "margin"}
-        _fig_g.update_layout(**_cll)
-        _fig_g.update_layout(height=170, margin=dict(l=12, r=12, t=30, b=8))
-        return _fig_g
-
-    for _gcol, _glbl, _gcn, _gmn, _gmx, _gu, _gcs in [
-        (_gv1, "Resting HR",    "rhr_bpm",      40,  100,   "bpm",
-         [(40, "#4A90D9"), (60, "#10B981"), (70, "#F59E0B"), (80, "#EF4444")]),
-        (_gv2, "SpO₂",          "spo2_avg_pct", 88,  100,   "%",
-         [(88, "#EF4444"), (90, "#F59E0B"), (95, "#10B981"), (98, "#2DD4BF")]),
-        (_gv3, "HRV RMSSD",    "hrv_ms",         0,  120,   "ms",
-         [(0,  "#EF4444"), (20, "#F59E0B"), (40, "#10B981"), (60, "#2DD4BF")]),
-        (_gv4, "Steps",          "steps",          0, 15000,  "",
-         [(0,  "#EF4444"), (5000, "#F59E0B"), (10000, "#10B981"), (13000, "#2DD4BF")]),
-    ]:
-        with _gcol:
-            _gv = _latest(_gcn)
-            if _gv is not None:
-                st.plotly_chart(_gauge_fig(_glbl, _gv, _gmn, _gmx, _gu, _gcs),
-                                width="stretch", config=_CFG)
-            else:
-                st.markdown(f"<div class='empty-panel'>{_glbl}<br>No data</div>",
-                            unsafe_allow_html=True)
-
     # ── SLEEP ARCHITECTURE ──────────────────────────────────
     _slsl1, _slsl2 = st.columns([6, 2])
     _slsl1.markdown("<div class='dash-section'>Sleep Architecture</div>", unsafe_allow_html=True)
