@@ -36,15 +36,19 @@ SINGLE_VAR = {"30-Day Trend (OLS)", "Anomaly Detection", "Forecast (7-Day)", "De
 MULTI_PRED = {"Multiple OLS Regression"}
 
 # ── Variable taxonomy ────────────────────────────────────────
-# Single unified tree — all variables available on either side of any analysis
 
-VAR_TREE = {
-    "Activity  ·  Volume":            ["steps", "distance_km", "calories_burned",
-                                        "sedentary_min", "lightly_active_min"],
-    "Activity  ·  Intensity":         ["active_zone_min", "very_active_min",
-                                        "fairly_active_min"],
-    "Activity  ·  Zones":             ["time_in_fat_burn_min", "time_in_cardio_min",
-                                        "time_in_peak_min"],
+# Activity — used as Variable A (input) in correlation analyses
+VAR_A_TREE = {
+    "Activity  ·  Volume":    ["steps", "distance_km", "calories_burned",
+                                "sedentary_min", "lightly_active_min"],
+    "Activity  ·  Intensity": ["active_zone_min", "very_active_min",
+                                "fairly_active_min"],
+    "Activity  ·  Zones":     ["time_in_fat_burn_min", "time_in_cardio_min",
+                                "time_in_peak_min"],
+}
+
+# Sleep + Cardiovascular — used as Variable B (output) in correlation analyses
+VAR_B_TREE = {
     "Sleep  ·  Primary":              ["sleep_efficiency_pct", "sleep_duration_min"],
     "Sleep  ·  Architecture":         ["deep_sleep_min", "rem_sleep_min",
                                         "light_sleep_min", "awake_min"],
@@ -54,30 +58,29 @@ VAR_TREE = {
     "Cardiovascular  ·  Respiratory": ["respiratory_rate", "vo2_max"],
 }
 
-VAR_A_TREE = VAR_TREE
-VAR_B_TREE = VAR_TREE
+# Unified tree — all variables, used for single-variable and OLS analyses
+VAR_TREE = {**VAR_A_TREE, **VAR_B_TREE}
 
 def _flat_cols(tree):
     out = []
     for cols in tree.values(): out.extend(cols)
     return out
 
-VAR_A_COLS = _flat_cols(VAR_TREE)
-VAR_B_COLS = VAR_A_COLS
+VAR_A_COLS = _flat_cols(VAR_A_TREE)
+VAR_B_COLS = _flat_cols(VAR_B_TREE)
 
 def col_label(col):
     return analysis.COL_LABELS.get(col, col)
 
-ALL_CATS = ["Activity", "Sleep", "Cardiovascular"]
-ALL_SUBS = {
-    "Activity":      ["Volume", "Intensity", "Zones"],
-    "Sleep":         ["Primary", "Architecture", "Behavioural"],
-    "Cardiovascular":["Heart", "Oxygen", "Respiratory"],
+A_CATS = ["Activity"]
+A_SUBS = {"Activity": ["Volume", "Intensity", "Zones"]}
+B_CATS = ["Sleep", "Cardiovascular"]
+B_SUBS = {
+    "Sleep":          ["Primary", "Architecture", "Behavioural"],
+    "Cardiovascular": ["Heart", "Oxygen", "Respiratory"],
 }
-A_CATS = ALL_CATS
-A_SUBS = ALL_SUBS
-B_CATS = ALL_CATS
-B_SUBS = ALL_SUBS
+ALL_CATS = ["Activity", "Sleep", "Cardiovascular"]
+ALL_SUBS = {**A_SUBS, **B_SUBS}
 
 def _picker(panel_id, cats, subs_map, tree, header):
     """Category → Subcategory → Variable. Returns chosen column name."""
@@ -1295,9 +1298,9 @@ if page == "Explorer":
     else:
         _cl, _cr = st.columns(2)
         with _cl:
-            var_a = _picker("a", A_CATS, A_SUBS, VAR_A_TREE, "Variable A")
+            var_a = _picker("a", A_CATS, A_SUBS, VAR_A_TREE, "VARIABLE A — Input / Driver")
         with _cr:
-            var_b = _picker("b", B_CATS, B_SUBS, VAR_B_TREE, "Variable B")
+            var_b = _picker("b", B_CATS, B_SUBS, VAR_B_TREE, "VARIABLE B — Output / Target")
         predictors = outcome = outcome_label = None
 
     st.divider()
