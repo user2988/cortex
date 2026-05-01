@@ -924,8 +924,9 @@ if page == "Dashboard":
     with _int1:
         st.markdown("<div class='dash-chart-label'>Top Correlations</div>",
                     unsafe_allow_html=True)
-        if not findings_df.empty:
-            for _, _r in findings_df.sort_values("r_squared", ascending=False).head(6).iterrows():
+        _auto_findings = findings_df[~findings_df["pinned"].astype(bool)] if not findings_df.empty else findings_df
+        if not _auto_findings.empty:
+            for _, _r in _auto_findings.sort_values("r_squared", ascending=False).head(6).iterrows():
                 _a  = analysis.COL_LABELS.get(_r["variable_a"], _r["variable_a"])
                 _b  = analysis.COL_LABELS.get(_r["variable_b"], _r["variable_b"]) if _r["variable_b"] else "—"
                 _r2 = float(_r["r_squared"])
