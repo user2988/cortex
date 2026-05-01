@@ -78,7 +78,7 @@ def _rolling_percentile(series: pd.Series, window: int, higher_is_better: bool) 
     Returns NaN when fewer than MIN_WINDOW prior values are available.
     """
     scores = pd.Series(index=series.index, dtype=float)
-    values = series.values
+    values = series.astype(float).values
 
     for i in range(len(series)):
         start = max(0, i - window)
