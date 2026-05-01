@@ -110,11 +110,6 @@ def get_experiments():
     return analysis.load_experiments()
 
 @st.cache_data(ttl=300)
-def get_daily_scores():
-    return analysis.load_daily_scores(days=90)
-
-
-@st.cache_data(ttl=300)
 def get_score_recommendations():
     return analysis.load_score_recommendations()
 
@@ -122,7 +117,7 @@ def get_score_recommendations():
 def bust_cache():
     get_data.clear(); get_findings.clear()
     get_experiments.clear()
-    get_daily_scores.clear(); get_score_recommendations.clear()
+    get_score_recommendations.clear()
 
 # ─────────────────────────────────────────────────────────────
 # HELPERS
@@ -191,7 +186,7 @@ if "exp_detail_id" not in st.session_state:
 if "saved_view_id" not in st.session_state:
     st.session_state.saved_view_id = None
 
-page = st.sidebar.radio("Navigation", ["Dashboard", "Insights", "Experiments", "Explorer"],
+page = st.sidebar.radio("Navigation", ["Dashboard", "Experiments", "Explorer"],
                          key="page", label_visibility="collapsed")
 
 if page != "Experiments":
@@ -274,31 +269,14 @@ if page == "Dashboard":
     """, unsafe_allow_html=True)
 
     # ── Data ────────────────────────────────────────────────
-    scores      = get_daily_scores()
     df_all      = get_data(90)
     findings_df = get_findings()
     exps_df     = get_experiments()
+    recs        = get_score_recommendations()
 
-    # Build a date-indexed view of daily_scores for fallback trend charts.
-    # daily_scores has hrv_ms, rhr_bpm, spo2_avg_pct, sleep_duration_min
-    # denormalised into it, so CVD/sleep charts work even when biometrics is sparse.
-    if not scores.empty and "date" in scores.columns:
-        _sc_idx = scores.set_index("date").sort_index()
-    else:
-        _sc_idx = pd.DataFrame()
-
-    # Merge: prefer biometrics when available, fall back to daily_scores columns
     def _get_series(col):
-        """Return the best available time series for a column."""
-        if not df_all.empty and col in df_all.columns:
-            s = df_all[col].dropna()
-            if len(s) >= 3:
-                return s
-        if not _sc_idx.empty and col in _sc_idx.columns:
-            s = _sc_idx[col].dropna()
-            if len(s) >= 3:
-                return s
-        return pd.Series(dtype=float)
+        s = df_all[col].dropna() if not df_all.empty and col in df_all.columns else pd.Series(dtype=float)
+        return s if len(s) >= 3 else pd.Series(dtype=float)
 
     # ── Plotly base layout ──────────────────────────────────
     _CL = dict(
@@ -334,9 +312,6 @@ if page == "Dashboard":
         d = float(s.iloc[-1]) - float(s.iloc[-2])
         return d, ("#10B981" if d > 0 else "#EF4444" if d < 0 else "#484F58")
 
-    def _score_color(v):
-        if v is None: return "#484F58"
-        return "#10B981" if v >= 70 else "#F59E0B" if v >= 45 else "#EF4444"
 
     def _fmt(v):
         if v is None: return "—"
@@ -451,15 +426,13 @@ if page == "Dashboard":
     )
 
     # ── DATA STATUS BAR ─────────────────────────────────────
-    _n_bio    = len(df_all) if not df_all.empty else 0
-    _n_scores = len(scores) if not scores.empty else 0
-    _n_find   = len(findings_df) if not findings_df.empty else 0
-    _n_exp    = len(exps_df) if not exps_df.empty else 0
+    _n_bio  = len(df_all) if not df_all.empty else 0
+    _n_find = len(findings_df) if not findings_df.empty else 0
+    _n_exp  = len(exps_df) if not exps_df.empty else 0
     st.markdown(
         f"<div style='font-family:IBM Plex Mono,monospace;font-size:10px;color:#484F58;"
         f"margin-bottom:12px;padding:6px 0;border-bottom:1px solid #21262D'>"
         f"biometrics {_n_bio}d &nbsp;·&nbsp; "
-        f"scores {_n_scores}d &nbsp;·&nbsp; "
         f"findings {_n_find} &nbsp;·&nbsp; "
         f"experiments {_n_exp}"
         f"</div>",
@@ -467,30 +440,6 @@ if page == "Dashboard":
     )
 
     # ── TODAY AT A GLANCE ───────────────────────────────────
-    def _recovery_score():
-        pts = 50.0
-        # HRV: last night vs personal baseline — strongest recovery signal, ±30 pts
-        _h = _get_series("hrv_ms").sort_index()
-        if len(_h) >= 14:
-            last_h = float(_h.iloc[-1])
-            base_h = float(_h.iloc[:-1].mean())  # exclude last night from baseline
-            if base_h > 0:
-                pts += max(-30, min(30, (last_h / base_h - 1) * 100))
-        # RHR: last night vs baseline — lower than usual = good, ±20 pts
-        _r = _get_series("rhr_bpm").sort_index()
-        if len(_r) >= 14:
-            last_r = float(_r.iloc[-1])
-            base_r = float(_r.iloc[:-1].mean())
-            if base_r > 0:
-                pts -= max(-20, min(20, (last_r / base_r - 1) * 100))
-        # Sleep efficiency: absolute pp diff from baseline, ±15 pts
-        _e = _get_series("sleep_efficiency_pct").sort_index()
-        if len(_e) >= 14:
-            last_e = float(_e.iloc[-1])
-            base_e = float(_e.iloc[:-1].mean())
-            pts += max(-15, min(15, (last_e - base_e) * 1.5))
-        return max(0, min(100, round(pts)))
-
     def _streak(col, threshold, direction="above"):
         s = _get_series(col)
         if len(s) < 1: return 0
@@ -502,48 +451,19 @@ if page == "Dashboard":
             else: break
         return count
 
-    _rec        = _recovery_score()
-    _rec_color  = "#10B981" if _rec >= 70 else "#F59E0B" if _rec >= 45 else "#EF4444"
-    _rec_label  = "Good" if _rec >= 70 else "Fair" if _rec >= 45 else "Low"
-    _stk_steps  = _streak("steps", 8000)
-    _stk_sleep  = _streak("sleep_efficiency_pct", 80)
+    _stk_steps = _streak("steps", 8000)
+    _stk_sleep = _streak("sleep_efficiency_pct", 80)
 
-    _hrv_s   = _get_series("hrv_ms")
-    _rhr_s   = _get_series("rhr_bpm")
-    _eff_s   = _get_series("sleep_efficiency_pct")
-    _dur_s   = _get_series("sleep_duration_min")
-    _hrv_now = float(_hrv_s.iloc[-1]) if len(_hrv_s) else None
-    _rhr_now = float(_rhr_s.iloc[-1]) if len(_rhr_s) else None
-    _eff_now = float(_eff_s.iloc[-1]) if len(_eff_s) else None
-    _dur_now = float(_dur_s.iloc[-1]) / 60 if len(_dur_s) else None
-    _hrv_base = float(_hrv_s.mean()) if len(_hrv_s) >= 14 else None
+    _hrv_now = float(_get_series("hrv_ms").sort_index().iloc[-1]) if len(_get_series("hrv_ms")) else None
+    _rhr_now = float(_get_series("rhr_bpm").sort_index().iloc[-1]) if len(_get_series("rhr_bpm")) else None
+    _eff_now = float(_get_series("sleep_efficiency_pct").sort_index().iloc[-1]) if len(_get_series("sleep_efficiency_pct")) else None
+    _dur_now = float(_get_series("sleep_duration_min").sort_index().iloc[-1]) / 60 if len(_get_series("sleep_duration_min")) else None
 
-    _ins_parts = []
-    if _hrv_now and _hrv_base:
-        _hp = (_hrv_now / _hrv_base - 1) * 100
-        if abs(_hp) >= 5:
-            _ins_parts.append(f"HRV {abs(_hp):.0f}% {'above' if _hp > 0 else 'below'} baseline")
-    if _stk_steps >= 3:
-        _ins_parts.append(f"{_stk_steps}-day steps streak")
-    if _stk_sleep >= 3:
-        _ins_parts.append(f"{_stk_sleep}-day sleep streak")
-    _insight = " · ".join(_ins_parts) if _ins_parts else "Keep logging daily to build your baseline."
-
-    _tc1, _tc2, _tc3, _tc4 = st.columns([1, 1.2, 1.2, 3])
-
-    _tc1.markdown(
-        f"<div style='background:#161B22;border:1px solid #21262D;border-radius:4px;"
-        f"padding:12px 10px;text-align:center'>"
-        f"<div style='font-family:IBM Plex Mono,monospace;font-size:8px;font-weight:600;"
-        f"letter-spacing:.1em;text-transform:uppercase;color:#484F58;margin-bottom:4px'>Recovery</div>"
-        f"<div style='font-family:IBM Plex Mono,monospace;font-size:34px;font-weight:300;"
-        f"color:{_rec_color};line-height:1.1'>{_rec}</div>"
-        f"<div style='font-family:Inter,sans-serif;font-size:10px;color:{_rec_color}'>{_rec_label}</div>"
-        f"</div>", unsafe_allow_html=True)
+    _tc1, _tc2 = st.columns(2)
 
     _stk_sc = "#2DD4BF" if _stk_steps >= 3 else "#F59E0B" if _stk_steps >= 1 else "#484F58"
     _stk_ec = "#2DD4BF" if _stk_sleep >= 3 else "#F59E0B" if _stk_sleep >= 1 else "#484F58"
-    _tc2.markdown(
+    _tc1.markdown(
         f"<div style='background:#161B22;border:1px solid #21262D;border-radius:4px;padding:12px 10px'>"
         f"<div style='font-family:IBM Plex Mono,monospace;font-size:8px;font-weight:600;"
         f"letter-spacing:.1em;text-transform:uppercase;color:#484F58;margin-bottom:6px'>Streaks</div>"
@@ -553,7 +473,7 @@ if page == "Dashboard":
         f"Sleep ≥80% &nbsp;<span style='color:{_stk_ec};font-size:14px'>{_stk_sleep}d</span></div>"
         f"</div>", unsafe_allow_html=True)
 
-    _tc3.markdown(
+    _tc2.markdown(
         f"<div style='background:#161B22;border:1px solid #21262D;border-radius:4px;padding:12px 10px'>"
         f"<div style='font-family:IBM Plex Mono,monospace;font-size:8px;font-weight:600;"
         f"letter-spacing:.1em;text-transform:uppercase;color:#484F58;margin-bottom:6px'>Last Night</div>"
@@ -563,15 +483,6 @@ if page == "Dashboard":
         f"<div style='font-family:IBM Plex Mono,monospace;font-size:11px;color:#8B949E;margin-top:4px'>"
         f"HRV &nbsp;<span style='color:#2DD4BF'>{f'{_hrv_now:.0f}ms' if _hrv_now else '—'}</span>"
         f"&nbsp; RHR &nbsp;<span style='color:#EF4444'>{f'{_rhr_now:.0f}bpm' if _rhr_now else '—'}</span></div>"
-        f"</div>", unsafe_allow_html=True)
-
-    _tc4.markdown(
-        f"<div style='background:#161B22;border:1px solid #21262D;border-radius:4px;"
-        f"padding:12px 14px'>"
-        f"<div style='font-family:IBM Plex Mono,monospace;font-size:8px;font-weight:600;"
-        f"letter-spacing:.1em;text-transform:uppercase;color:#484F58;margin-bottom:6px'>Summary</div>"
-        f"<div style='font-family:Inter,sans-serif;font-size:12px;color:#8B949E;line-height:1.6'>"
-        f"{_insight}</div>"
         f"</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
@@ -981,8 +892,6 @@ if page == "Dashboard":
             _prs = pd.Series(dtype=float)
             if not _df_all_time.empty and _prc in _df_all_time.columns:
                 _prs = _df_all_time[_prc].dropna()
-            elif not _sc_idx.empty and _prc in _sc_idx.columns:
-                _prs = _sc_idx[_prc].dropna()
             if len(_prs) >= 1:
                 _prv = float(_prs.max() if _prd == "max" else _prs.min())
                 _prdt = _prs.idxmax() if _prd == "max" else _prs.idxmin()
@@ -1071,219 +980,37 @@ if page == "Dashboard":
             st.markdown("<div class='empty-panel'>No active experiments.</div>",
                         unsafe_allow_html=True)
 
-    st.stop()  # end Dashboard
-
-# ─────────────────────────────────────────────────────────────
-# INSIGHTS PAGE
-# ─────────────────────────────────────────────────────────────
-
-if page == "Insights":
-    st.title("Insights")
-
-    scores = get_daily_scores()
-    recs   = get_score_recommendations()
-
-    MIN_SCORE_DAYS = 7
-
-    def score_color(s):
-        if s >= 70: return GREEN
-        if s >= 45: return ORANGE
-        return RED
-
-    def score_delta_str(series: pd.Series):
-        """Yesterday vs day before — direction arrow and delta."""
-        valid = series.dropna()
-        if len(valid) < 2:
-            return "→", GRAY
-        delta = float(valid.iloc[0]) - float(valid.iloc[1])
-        if delta > 2:
-            return f"↑ {delta:.0f}", GREEN
-        if delta < -2:
-            return f"↓ {abs(delta):.0f}", RED
-        return "→ stable", GRAY
-
-    # ══════════════════════════════════════════════════════════
-    # SCORES — two columns
-    # ══════════════════════════════════════════════════════════
-    col_sleep, col_heart = st.columns(2)
-
-    for col, score_col, comp_cols, comp_labels, title, icon in [
-        (
-            col_sleep, "sleep_score",
-            ["duration_score", "deep_score", "rem_score", "efficiency_score"],
-            ["Duration", "Deep %", "REM %", "Efficiency"],
-            "Sleep Score", "🌙",
-        ),
-        (
-            col_heart, "heart_score",
-            ["hrv_score", "rhr_score", "spo2_score"],
-            ["HRV", "Resting HR", "SpO₂"],
-            "Heart Score", "❤️",
-        ),
-    ]:
-        with col:
-            st.markdown(f"#### {icon} {title}")
-
-            if scores.empty or scores[score_col].dropna().empty:
-                st.caption(
-                    f"Score appears after {MIN_SCORE_DAYS} days of biometric data. "
-                    "Sync your Fitbit daily to build your baseline."
-                )
-            else:
-                latest_score = float(scores[score_col].dropna().iloc[0])
-                arrow, acolor = score_delta_str(scores[score_col])
-                s_color = score_color(latest_score)
-
-                st.markdown(
-                    f"<div style='font-size:3.2em;font-weight:700;color:{s_color};line-height:1'>"
-                    f"{latest_score:.0f}"
-                    f"<span style='font-size:0.4em;color:{GRAY}'>/100</span></div>"
-                    f"<div style='color:{acolor};font-size:1em;margin-bottom:0.5em'>{arrow}</div>",
-                    unsafe_allow_html=True,
-                )
-
-                # Component bar chart
-                comp_data = scores[comp_cols].dropna(how="all").iloc[0]
-                valid_comps = [(lbl, float(comp_data[col]))
-                               for lbl, col in zip(comp_labels, comp_cols)
-                               if pd.notna(comp_data[col])]
-
-                if valid_comps:
-                    fig = go.Figure(go.Bar(
-                        x=[v for _, v in valid_comps],
-                        y=[l for l, _ in valid_comps],
-                        orientation="h",
-                        marker_color=[score_color(v) for _, v in valid_comps],
-                        text=[f"{v:.0f}" for _, v in valid_comps],
-                        textposition="outside",
-                    ))
-                    fig.update_layout(
-                        height=40 * len(valid_comps) + 40,
-                        margin=dict(l=0, r=40, t=10, b=0),
-                        xaxis=dict(range=[0, 100], showticklabels=False),
-                        yaxis=dict(autorange="reversed"),
-                        plot_bgcolor="rgba(0,0,0,0)",
-                        paper_bgcolor="rgba(0,0,0,0)",
-                    )
-                    st.plotly_chart(fig, width="stretch")
-
-                # 30-day trend
-                trend = scores[["date", score_col]].dropna().sort_values("date")
-                if len(trend) >= 3:
-                    fig2 = go.Figure(go.Scatter(
-                        x=trend["date"], y=trend[score_col],
-                        mode="lines",
-                        line=dict(color=s_color, width=2),
-                        fill="tozeroy",
-                        fillcolor=f"rgba({','.join(str(int(s_color.lstrip('#')[i:i+2], 16)) for i in (0,2,4))},0.08)",
-                        hovertemplate="%{x|%b %-d}: %{y:.0f}<extra></extra>",
-                    ))
-                    fig2.update_layout(
-                        height=140,
-                        margin=dict(l=0, r=0, t=0, b=0),
-                        xaxis=dict(showticklabels=True, showgrid=False),
-                        yaxis=dict(range=[0, 100], showgrid=True, gridcolor="#f0f0f0"),
-                        plot_bgcolor="rgba(0,0,0,0)",
-                        paper_bgcolor="rgba(0,0,0,0)",
-                    )
-                    st.plotly_chart(fig2, width="stretch")
-
-    st.divider()
-
-    # ══════════════════════════════════════════════════════════
-    # TOP FINDINGS
-    # ══════════════════════════════════════════════════════════
-    st.markdown("#### Top Findings")
-
-    _findings = get_findings()
-    _auto = _findings[~_findings["pinned"].astype(bool)] if not _findings.empty else pd.DataFrame()
-
-    if _auto.empty:
-        st.caption("No findings yet — the weekly job runs every Sunday and will surface your strongest biometric patterns here.")
-    else:
-        _auto = _auto.sort_values("r_squared", ascending=False).head(5)
-        for _, row in _auto.iterrows():
-            a_lbl = analysis.COL_LABELS.get(row["variable_a"], row["variable_a"])
-            b_lbl = analysis.COL_LABELS.get(row["variable_b"], row["variable_b"])
-            r2    = float(row["r_squared"])
-            coef  = float(row["coefficient"])
-            lag   = int(row["lag_days"])
-            n     = int(row["sample_size"])
-            direction = "↑" if coef > 0 else "↓"
-            lag_str   = f" · {lag}d lag" if lag > 0 else ""
-            r2_color  = GREEN if r2 >= 0.15 else ORANGE if r2 >= 0.07 else GRAY
-
-            with st.container(border=True):
-                c1, c2 = st.columns([7, 2])
-                c1.markdown(f"**{a_lbl}** → **{b_lbl}**{lag_str}")
-                c1.caption(f"{direction} {abs(coef):.3f} coefficient · {n} days of data")
-                c2.markdown(
-                    f"<div style='text-align:right;padding-top:0.3em'>"
-                    f"<div style='font-size:0.75rem;color:{GRAY}'>R²</div>"
-                    f"<div style='font-size:1.6em;font-weight:700;color:{r2_color}'>{r2:.3f}</div>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-
-    st.divider()
-
-    # ══════════════════════════════════════════════════════════
-    # RECOMMENDATIONS
-    # ══════════════════════════════════════════════════════════
-    st.markdown("#### Activity Recommendations")
-
+    # ── ACTIVITY RECOMMENDATIONS ────────────────────────────
+    _section("Activity Recommendations")
     if recs.empty:
-        if scores.empty or len(scores) < MIN_SCORE_DAYS:
-            st.caption(
-                f"Recommendations appear after {MIN_SCORE_DAYS} days of data. "
-                "Keep syncing daily — the more data, the more specific the insights."
-            )
-        else:
-            st.caption(
-                "No strong activity patterns found yet. "
-                "Recommendations strengthen as your data grows."
-            )
+        st.markdown("<div class='empty-panel'>Recommendations appear after 14 days of data — "
+                    "keep syncing daily.</div>", unsafe_allow_html=True)
     else:
-        n_days_data = int(recs["sample_size"].max()) if not recs.empty else 0
-        st.caption(f"Based on {n_days_data} days of your data. Updated daily.")
-
-        for _, rec in recs.head(6).iterrows():
-            target    = str(rec["target_score"])
-            delta     = float(rec["score_delta"])
-            in_range  = float(rec["avg_score_in_range"])
-            out_range = float(rec["avg_score_outside"])
-            icon      = "🌙" if target == "sleep" else "❤️"
-            tag_color = BLUE if target == "sleep" else RED
-
+        _n_days_rec = int(recs["sample_size"].max())
+        st.caption(f"Based on {_n_days_rec} days of your data. Updated daily.")
+        for _, _rec in recs.head(6).iterrows():
+            _target   = str(_rec["target_score"])
+            _icon     = "Sleep" if _target == "sleep" else "Heart"
+            _tag_clr  = "#4A90D9" if _target == "sleep" else "#EF4444"
             with st.container(border=True):
-                rc1, rc2 = st.columns([7, 3])
-                with rc1:
-                    st.markdown(
-                        f"<span style='font-size:0.7rem;font-weight:600;color:{tag_color};"
-                        f"text-transform:uppercase;letter-spacing:0.05em'>"
-                        f"{icon} {target.capitalize()} Score</span>",
-                        unsafe_allow_html=True,
-                    )
-                    st.markdown(
-                        f"**{rec['activity_label'].capitalize()}:**  "
-                        f"{rec['optimal_min_fmt']} – {rec['optimal_max_fmt']}"
-                    )
-                    st.caption(rec["recommendation_text"])
-                with rc2:
-                    st.markdown(
-                        f"<div style='text-align:center;padding-top:0.4em'>"
-                        f"<div style='font-size:0.75rem;color:{GRAY}'>Score impact</div>"
-                        f"<div style='font-size:1.8em;font-weight:700;color:{GREEN}'>+{delta:.0f}</div>"
-                        f"<div style='font-size:0.7rem;color:{GRAY}'>{out_range:.0f} → {in_range:.0f}</div>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
+                st.markdown(
+                    f"<span style='font-size:0.7rem;font-weight:600;color:{_tag_clr};"
+                    f"text-transform:uppercase;letter-spacing:0.05em'>{_icon}</span>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f"**{_rec['activity_label'].capitalize()}:** "
+                    f"{_rec['optimal_min_fmt']} – {_rec['optimal_max_fmt']}"
+                )
+                st.caption(_rec["recommendation_text"])
 
-    st.stop()  # end Insights
+    st.stop()  # end Dashboard
 
 # ─────────────────────────────────────────────────────────────
 # EXPERIMENTS PAGE
 # ─────────────────────────────────────────────────────────────
+
+
 
 if page == "Experiments":
     df = get_data(0)
