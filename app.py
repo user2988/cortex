@@ -409,7 +409,7 @@ if page == "Dashboard":
     if not df_all.empty:
         _hrs = (pd.Timestamp.now() - df_all.index.max()).total_seconds() / 3600
         _sc  = "#10B981" if _hrs < 6 else "#F59E0B" if _hrs < 24 else "#EF4444"
-        _st  = f"Synced {_hrs:.0f}h ago" if _hrs < 24 else f"Stale — {_hrs/24:.0f}d ago"
+        _st  = f"Synced {_hrs:.0f}h ago" if _hrs < 24 else f"Last synced {_hrs/24:.0f}d ago"
     else:
         _sc, _st = "#484F58", "No data"
 
