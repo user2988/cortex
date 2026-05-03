@@ -149,9 +149,8 @@ def _analyse_metric(
     hi = _fmt(metric, best_bin.right if not np.isinf(best_bin.right) else combined["activity"].max())
 
     rec_text = (
-        f"Your {score_name.lower()} is highest (avg {best_avg:.0f}/100) "
-        f"on days when {label} is between {lo} and {hi} — "
-        f"{impact:.0f} points above your average on other days."
+        f"Avg {best_avg:.0f}/100 in this range — "
+        f"+{impact:.0f} pts above your baseline"
     )
 
     return {
