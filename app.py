@@ -986,6 +986,30 @@ if page == "Dashboard":
 
     # ── ACTIVITY RECOMMENDATIONS ────────────────────────────
     _section("Activity Recommendations")
+
+    # Positive activity metrics: filter cached rows where the optimal bin is
+    # the bottom quantile — those are rest-day HR artifacts, not useful advice.
+    _POSITIVE_METRICS = {
+        "steps", "active_zone_min", "very_active_min", "fairly_active_min",
+        "lightly_active_min", "calories_burned", "distance_km",
+    }
+    _LABEL_MAP = {
+        "lightly active minutes":  "light movement",
+        "fairly active minutes":   "moderate exercise",
+        "very active minutes":     "intense exercise",
+        "active zone minutes":     "cardio time",
+        "sedentary time":          "sitting time",
+        "daily steps":             "daily steps",
+        "distance walked/run":     "distance",
+        "calories burned":         "calories burned",
+    }
+    if not recs.empty:
+        _artifact_mask = (
+            recs["activity_metric"].isin(_POSITIVE_METRICS) &
+            (recs["optimal_min"].isna() | (recs["optimal_min"] == 0))
+        )
+        recs = recs[~_artifact_mask]
+
     if recs.empty:
         st.markdown("<div class='empty-panel'>Recommendations appear after 14 days of data — "
                     "keep syncing daily.</div>", unsafe_allow_html=True)
@@ -994,23 +1018,25 @@ if page == "Dashboard":
         st.caption(f"Based on {_n_days_rec} days of your data. Updated daily.")
         for _, _rec in recs.head(6).iterrows():
             _target      = str(_rec["target_score"])
-            _score_label = "Sleep Score" if _target == "sleep" else "Heart Score"
+            _score_label = "sleep" if _target == "sleep" else "heart"
             _tag_clr     = "#4A90D9" if _target == "sleep" else "#EF4444"
             _avg         = float(_rec["avg_score_in_range"])
-            _delta       = float(_rec["score_delta"])
-            _label       = str(_rec["activity_label"]).lower()
+            _outside     = float(_rec["avg_score_outside"])
+            _label_raw   = str(_rec["activity_label"]).lower()
+            _label       = _LABEL_MAP.get(_label_raw, _label_raw)
             _lo          = _rec["optimal_min_fmt"]
             _hi          = _rec["optimal_max_fmt"]
             with st.container(border=True):
                 st.markdown(
                     f"<span style='font-size:0.75rem;font-weight:700;color:{_tag_clr};"
-                    f"text-transform:uppercase;letter-spacing:0.06em'>{_score_label}</span>",
+                    f"text-transform:uppercase;letter-spacing:0.06em'>"
+                    f"Improve your {_score_label} score</span>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"On days with **{_lo}–{_hi}** of {_label}, "
-                    f"your score averages **{_avg:.0f}/100** — "
-                    f"**{_delta:.0f} points** higher than on other days."
+                    f"Aim for **{_lo}–{_hi}** of {_label}. "
+                    f"Your score averages **{_avg:.0f}/100** on these days, "
+                    f"compared to **{_outside:.0f}/100** on others."
                 )
 
     st.stop()  # end Dashboard
