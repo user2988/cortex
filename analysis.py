@@ -522,7 +522,7 @@ def load_score_recommendations() -> pd.DataFrame:
     sql = """
         SELECT DISTINCT ON (target_score)
                target_score, activity_metric, activity_label,
-               optimal_min_fmt, optimal_max_fmt,
+               optimal_min, optimal_min_fmt, optimal_max_fmt,
                avg_score_in_range, avg_score_outside, score_delta,
                correlation, sample_size, recommendation_text
         FROM score_recommendations
@@ -540,6 +540,6 @@ def load_score_recommendations() -> pd.DataFrame:
         conn.close()
     df = pd.DataFrame(rows, columns=cols)
     if not df.empty:
-        for col in ["avg_score_in_range", "avg_score_outside", "score_delta", "correlation"]:
+        for col in ["optimal_min", "avg_score_in_range", "avg_score_outside", "score_delta", "correlation"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
