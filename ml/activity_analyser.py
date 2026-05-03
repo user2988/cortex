@@ -149,8 +149,9 @@ def _analyse_metric(
     hi = _fmt(metric, best_bin.right if not np.isinf(best_bin.right) else combined["activity"].max())
 
     rec_text = (
-        f"Avg {best_avg:.0f}/100 in this range — "
-        f"+{impact:.0f} pts above your baseline"
+        f"On days with {lo}–{hi} of {label.lower()}, "
+        f"your score averages {best_avg:.0f}/100 — "
+        f"{impact:.0f} points higher than on other days."
     )
 
     return {
@@ -193,10 +194,11 @@ def analyse(df: pd.DataFrame | None = None) -> list[dict]:
             if rec:
                 recs.append(rec)
 
-    # Deduplicate: keep the higher-impact recommendation per metric
+    # Keep only the single best metric per target score so we don't show
+    # five near-identical cards for correlated metrics (steps, calories, etc.)
     seen: dict[str, dict] = {}
     for rec in recs:
-        key = rec["activity_metric"]
+        key = rec["target_score"]
         if key not in seen or rec["score_delta"] > seen[key]["score_delta"]:
             seen[key] = rec
 
