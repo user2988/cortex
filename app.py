@@ -996,6 +996,8 @@ if page == "Dashboard":
             _target   = str(_rec["target_score"])
             _icon     = "Sleep" if _target == "sleep" else "Heart"
             _tag_clr  = "#4A90D9" if _target == "sleep" else "#EF4444"
+            _avg      = float(_rec["avg_score_in_range"])
+            _delta    = float(_rec["score_delta"])
             with st.container(border=True):
                 st.markdown(
                     f"<span style='font-size:0.7rem;font-weight:600;color:{_tag_clr};"
@@ -1006,7 +1008,10 @@ if page == "Dashboard":
                     f"**{_rec['activity_label'].capitalize()}:** "
                     f"{_rec['optimal_min_fmt']} – {_rec['optimal_max_fmt']}"
                 )
-                st.caption(_rec["recommendation_text"])
+                st.caption(
+                    f"Avg **{_avg:.0f}/100** in this range — "
+                    f"**+{_delta:.0f} pts** above your baseline"
+                )
 
     st.stop()  # end Dashboard
 
