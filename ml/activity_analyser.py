@@ -30,6 +30,14 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 MIN_PAIRS    = 14   # minimum matched rows before we generate recommendations
 N_BINS       = 5    # quantile bins per metric
 
+# Metrics where the optimal range being the *lowest* bin is a rest-day
+# artifact rather than genuine advice (e.g. "do zero exercise").
+# sedentary_min is excluded because lower sedentary time IS meaningful.
+ACTIVITY_POSITIVE_METRICS = {
+    "steps", "active_zone_min", "very_active_min", "fairly_active_min",
+    "lightly_active_min", "calories_burned", "distance_km",
+}
+
 ACTIVITY_METRICS = {
     "steps":                 "daily steps",
     "active_zone_min":       "active zone minutes",
@@ -143,6 +151,11 @@ def _analyse_metric(
     impact    = best_avg - other_avg
 
     if impact < 2.0:
+        return None
+
+    # For exercise metrics, discard "do less" findings — they reflect rest-day
+    # HR recovery, not a useful target. Only surface mid/high-range optima.
+    if metric in ACTIVITY_POSITIVE_METRICS and best_idx == bin_stats.index[0]:
         return None
 
     lo = _fmt(metric, best_bin.left  if not np.isinf(best_bin.left)  else combined["activity"].min())
