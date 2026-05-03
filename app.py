@@ -119,7 +119,7 @@ def get_score_recommendations():
 
 def bust_cache():
     get_data.clear(); get_findings.clear()
-    get_experiments.clear()
+    get_experiments.clear(); get_score_recommendations.clear()
     get_score_recommendations.clear()
 
 # ─────────────────────────────────────────────────────────────
@@ -1003,7 +1003,7 @@ if page == "Dashboard":
         "distance walked/run":     "distance",
         "calories burned":         "calories burned",
     }
-    if not recs.empty:
+    if not recs.empty and "optimal_min" in recs.columns:
         _artifact_mask = (
             recs["activity_metric"].isin(_POSITIVE_METRICS) &
             (recs["optimal_min"].isna() | (recs["optimal_min"] == 0))
