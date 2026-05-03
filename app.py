@@ -993,24 +993,24 @@ if page == "Dashboard":
         _n_days_rec = int(recs["sample_size"].max())
         st.caption(f"Based on {_n_days_rec} days of your data. Updated daily.")
         for _, _rec in recs.head(6).iterrows():
-            _target   = str(_rec["target_score"])
-            _icon     = "Sleep" if _target == "sleep" else "Heart"
-            _tag_clr  = "#4A90D9" if _target == "sleep" else "#EF4444"
-            _avg      = float(_rec["avg_score_in_range"])
-            _delta    = float(_rec["score_delta"])
+            _target      = str(_rec["target_score"])
+            _score_label = "Sleep Score" if _target == "sleep" else "Heart Score"
+            _tag_clr     = "#4A90D9" if _target == "sleep" else "#EF4444"
+            _avg         = float(_rec["avg_score_in_range"])
+            _delta       = float(_rec["score_delta"])
+            _label       = str(_rec["activity_label"]).lower()
+            _lo          = _rec["optimal_min_fmt"]
+            _hi          = _rec["optimal_max_fmt"]
             with st.container(border=True):
                 st.markdown(
-                    f"<span style='font-size:0.7rem;font-weight:600;color:{_tag_clr};"
-                    f"text-transform:uppercase;letter-spacing:0.05em'>{_icon}</span>",
+                    f"<span style='font-size:0.75rem;font-weight:700;color:{_tag_clr};"
+                    f"text-transform:uppercase;letter-spacing:0.06em'>{_score_label}</span>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"**{_rec['activity_label'].capitalize()}:** "
-                    f"{_rec['optimal_min_fmt']} – {_rec['optimal_max_fmt']}"
-                )
-                st.caption(
-                    f"Avg **{_avg:.0f}/100** in this range — "
-                    f"**+{_delta:.0f} pts** above your baseline"
+                    f"On days with **{_lo}–{_hi}** of {_label}, "
+                    f"your score averages **{_avg:.0f}/100** — "
+                    f"**{_delta:.0f} points** higher than on other days."
                 )
 
     st.stop()  # end Dashboard
