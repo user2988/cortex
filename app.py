@@ -1003,6 +1003,56 @@ if page == "Dashboard":
         "distance walked/run":     "distance",
         "calories burned":         "calories burned",
     }
+    _SCORE_EXPLAIN = {
+        "sleep": (
+            "Your **sleep score** (0–100) is calculated each morning from how long "
+            "you slept, how much time you spent in deep and REM sleep, and how well "
+            "your heart rate and breathing recovered overnight. Higher is better — "
+            "most adults score between 72 and 83 on a good night."
+        ),
+        "heart": (
+            "Your **heart score** (0–100) reflects cardiovascular health signals "
+            "captured while you sleep — mainly resting heart rate and heart rate "
+            "variability (HRV). A higher score means your heart is recovering "
+            "efficiently and isn't under stress."
+        ),
+    }
+    _METRIC_CONTEXT = {
+        "lightly active minutes": (
+            "Light movement means any low-effort activity that keeps you on your feet "
+            "— a walk around the block, light housework, wandering around a shop. "
+            "You don't need to break a sweat."
+        ),
+        "fairly active minutes": (
+            "Moderate exercise is brisk walking, cycling at an easy pace, or anything "
+            "that raises your heart rate noticeably but still lets you hold a conversation."
+        ),
+        "very active minutes": (
+            "Intense exercise means running, HIIT, or any activity where you're "
+            "working hard and breathing heavily."
+        ),
+        "active zone minutes": (
+            "Active zone minutes count time spent with your heart rate elevated above "
+            "your personal resting baseline — a Fitbit measure of cardiovascular effort."
+        ),
+        "sedentary time": (
+            "Sedentary time is time spent sitting or lying down while awake — desk "
+            "work, commuting, watching TV, and so on."
+        ),
+        "daily steps": (
+            "Step count is the total number of steps your device recorded across the "
+            "whole day, including casual walking and intentional exercise."
+        ),
+        "distance walked/run": (
+            "Total distance covers all movement recorded by your device across the day, "
+            "from your morning walk to an evening run."
+        ),
+        "calories burned": (
+            "Calories burned is your estimated total daily energy expenditure — "
+            "your resting metabolic rate plus all activity your device detected."
+        ),
+    }
+
     if not recs.empty and "optimal_min" in recs.columns:
         _artifact_mask = (
             recs["activity_metric"].isin(_POSITIVE_METRICS) &
@@ -1022,6 +1072,7 @@ if page == "Dashboard":
             _tag_clr     = "#4A90D9" if _target == "sleep" else "#EF4444"
             _avg         = float(_rec["avg_score_in_range"])
             _outside     = float(_rec["avg_score_outside"])
+            _delta       = float(_rec["score_delta"])
             _label_raw   = str(_rec["activity_label"]).lower()
             _label       = _LABEL_MAP.get(_label_raw, _label_raw)
             _lo          = _rec["optimal_min_fmt"]
@@ -1033,11 +1084,16 @@ if page == "Dashboard":
                     f"Improve your {_score_label} score</span>",
                     unsafe_allow_html=True,
                 )
+                st.markdown(_SCORE_EXPLAIN.get(_target, ""))
+                st.divider()
                 st.markdown(
-                    f"Aim for **{_lo}–{_hi}** of {_label}. "
-                    f"Your score averages **{_avg:.0f}/100** on these days, "
-                    f"compared to **{_outside:.0f}/100** on others."
+                    f"**What your data shows:** on days when you get **{_lo}–{_hi}** "
+                    f"of {_label}, your {_score_label} score averages **{_avg:.0f}/100**. "
+                    f"On other days it averages **{_outside:.0f}/100** — a difference "
+                    f"of **{_delta:.0f} points**."
                 )
+                if _label_raw in _METRIC_CONTEXT:
+                    st.caption(_METRIC_CONTEXT[_label_raw])
 
     st.stop()  # end Dashboard
 
