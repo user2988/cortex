@@ -407,9 +407,15 @@ if page == "Dashboard":
     # ── HEADER ──────────────────────────────────────────────
     today_str = pd.Timestamp.today().strftime("%A, %b %-d, %Y")
     if not df_all.empty:
-        _hrs = (pd.Timestamp.now() - df_all.index.max()).total_seconds() / 3600
-        _sc  = "#10B981" if _hrs < 6 else "#F59E0B" if _hrs < 24 else "#EF4444"
-        _st  = f"Synced {_hrs:.0f}h ago" if _hrs < 24 else f"Last synced {_hrs/24:.0f}d ago"
+        _hrs      = (pd.Timestamp.now() - df_all.index.max()).total_seconds() / 3600
+        _days_ago = (pd.Timestamp.today().normalize() - pd.Timestamp(df_all.index.max()).normalize()).days
+        _sc  = "#10B981" if _hrs < 6 else "#F59E0B" if _days_ago == 0 else "#EF4444"
+        if _days_ago == 0:
+            _st = f"Synced {_hrs:.0f}h ago"
+        elif _days_ago == 1:
+            _st = "Synced yesterday"
+        else:
+            _st = f"Synced {_days_ago} days ago"
     else:
         _sc, _st = "#484F58", "No data"
 
