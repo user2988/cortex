@@ -436,7 +436,8 @@ if page == "Dashboard":
 
     # ── DATA STATUS BAR ─────────────────────────────────────
     _n_bio  = len(df_all) if not df_all.empty else 0
-    _n_find = len(findings_df) if not findings_df.empty else 0
+    _auto_find = findings_df[~findings_df["pinned"].astype(bool)] if not findings_df.empty else findings_df
+    _n_find = len(_auto_find)
     _n_exp  = len(exps_df) if not exps_df.empty else 0
     st.markdown(
         f"<div style='font-family:IBM Plex Mono,monospace;font-size:10px;color:#484F58;"
