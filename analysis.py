@@ -520,12 +520,13 @@ def load_daily_scores(days: int = 90) -> pd.DataFrame:
 def load_score_recommendations() -> pd.DataFrame:
     """Load the latest score_recommendations, ranked by score_delta descending."""
     sql = """
-        SELECT target_score, activity_metric, activity_label,
+        SELECT DISTINCT ON (target_score)
+               target_score, activity_metric, activity_label,
                optimal_min_fmt, optimal_max_fmt,
                avg_score_in_range, avg_score_outside, score_delta,
                correlation, sample_size, recommendation_text
         FROM score_recommendations
-        ORDER BY score_delta DESC
+        ORDER BY target_score, score_delta DESC
     """
     conn = psycopg2.connect(DATABASE_URL)
     try:
