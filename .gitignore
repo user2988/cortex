@@ -1,9 +1,6 @@
 # Secrets — never commit these
 fitbit_tokens.json
 .env
-*.json
-
-# Keep backfill data local only
 backfill_data.json
 
 # Python
@@ -14,3 +11,9 @@ __pycache__/
 
 # Jupyter checkpoints
 .ipynb_checkpoints/
+
+# Node
+node_modules/
+.next/
+.vercel/
+
